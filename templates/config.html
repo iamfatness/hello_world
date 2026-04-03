@@ -90,6 +90,96 @@
         </div>
     </div>
 
+    <div class="card">
+        <h2>Single Sign-On (SSO)</h2>
+        <p style="font-size:13px;color:#666;margin-bottom:16px;">Configure OAuth2/OIDC authentication for the admin portal. Supports Okta, Azure AD (Entra ID), Google Workspace, Keycloak, Auth0, and any OIDC-compliant provider.</p>
+
+        <div class="form-group">
+            <label for="sso_enabled">SSO Status</label>
+            <select id="sso_enabled" name="sso_enabled">
+                <option value="false" {{ '' if config.sso_enabled == 'true' else 'selected' }}>Disabled (no login required)</option>
+                <option value="true" {{ 'selected' if config.sso_enabled == 'true' else '' }}>Enabled (require SSO login)</option>
+            </select>
+            <div class="help">When disabled, the admin portal is open without authentication. When enabled, users must sign in via your identity provider.</div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="sso_provider_name">Provider Name</label>
+                <input type="text" id="sso_provider_name" name="sso_provider_name" value="{{ config.sso_provider_name }}" placeholder="okta">
+                <div class="help">Display label (e.g., "okta", "azure", "google")</div>
+            </div>
+            <div class="form-group">
+                <label for="sso_scopes">Scopes</label>
+                <input type="text" id="sso_scopes" name="sso_scopes" value="{{ config.sso_scopes }}" placeholder="openid email profile">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="sso_client_id">Client ID</label>
+                <input type="text" id="sso_client_id" name="sso_client_id" value="{{ config.sso_client_id }}">
+            </div>
+            <div class="form-group">
+                <label for="sso_client_secret">Client Secret</label>
+                <input type="password" id="sso_client_secret" name="sso_client_secret" value="{{ config.sso_client_secret }}">
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Endpoint Configuration</h3>
+            <div class="form-group">
+                <label for="sso_discovery_url">OIDC Discovery URL (recommended)</label>
+                <input type="text" id="sso_discovery_url" name="sso_discovery_url" value="{{ config.sso_discovery_url }}" placeholder="https://your-provider.com/.well-known/openid-configuration">
+                <div class="help">If provided, authorization, token, and userinfo endpoints are auto-configured.</div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="sso_authorization_endpoint">Authorization Endpoint</label>
+                    <input type="text" id="sso_authorization_endpoint" name="sso_authorization_endpoint" value="{{ config.sso_authorization_endpoint }}" placeholder="https://your-provider.com/authorize">
+                    <div class="help">Only needed if no discovery URL</div>
+                </div>
+                <div class="form-group">
+                    <label for="sso_token_endpoint">Token Endpoint</label>
+                    <input type="text" id="sso_token_endpoint" name="sso_token_endpoint" value="{{ config.sso_token_endpoint }}" placeholder="https://your-provider.com/token">
+                    <div class="help">Only needed if no discovery URL</div>
+                </div>
+            </div>
+            <div class="form-group" style="max-width:calc(50% - 8px)">
+                <label for="sso_userinfo_endpoint">Userinfo Endpoint</label>
+                <input type="text" id="sso_userinfo_endpoint" name="sso_userinfo_endpoint" value="{{ config.sso_userinfo_endpoint }}" placeholder="https://your-provider.com/userinfo">
+                <div class="help">Only needed if no discovery URL</div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Access Control</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="sso_allowed_domains">Allowed Email Domains</label>
+                    <input type="text" id="sso_allowed_domains" name="sso_allowed_domains" value="{{ config.sso_allowed_domains }}" placeholder="example.com, company.com">
+                    <div class="help">Comma-separated. Leave blank to allow all domains.</div>
+                </div>
+                <div class="form-group">
+                    <label for="sso_allowed_emails">Allowed Emails</label>
+                    <input type="text" id="sso_allowed_emails" name="sso_allowed_emails" value="{{ config.sso_allowed_emails }}" placeholder="admin@example.com, ops@example.com">
+                    <div class="help">Comma-separated. Leave blank to allow all authenticated users.</div>
+                </div>
+            </div>
+            <div class="form-group" style="max-width:calc(50% - 8px)">
+                <label for="sso_admin_role_claim">Admin Role Claim</label>
+                <input type="text" id="sso_admin_role_claim" name="sso_admin_role_claim" value="{{ config.sso_admin_role_claim }}" placeholder="roles">
+                <div class="help">JWT claim containing user roles. If set, user must have "admin" role. Leave blank to skip role check.</div>
+            </div>
+        </div>
+
+        <div class="alert alert-warning" style="margin-top:16px;">
+            <strong>Important:</strong> After enabling SSO, the OAuth callback URL to register with your identity provider is:<br>
+            <code style="background:#fff3cd;padding:2px 6px;border-radius:3px;">{{ callback_url }}</code><br>
+            Changes to SSO settings require an application restart to take effect.
+        </div>
+    </div>
+
     <div style="display:flex;gap:8px;">
         <button type="submit" class="btn btn-primary">Save Configuration</button>
     </div>

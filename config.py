@@ -33,6 +33,20 @@ class Config:
     UKG_PASSWORD = os.getenv("UKG_PASSWORD", "")
     UKG_USER_API_KEY = os.getenv("UKG_USER_API_KEY", "")
 
+    # SSO / OAuth2
+    SSO_ENABLED = os.getenv("SSO_ENABLED", "false").lower() == "true"
+    SSO_PROVIDER_NAME = os.getenv("SSO_PROVIDER_NAME", "oauth")
+    SSO_CLIENT_ID = os.getenv("SSO_CLIENT_ID", "")
+    SSO_CLIENT_SECRET = os.getenv("SSO_CLIENT_SECRET", "")
+    SSO_DISCOVERY_URL = os.getenv("SSO_DISCOVERY_URL", "")
+    SSO_AUTHORIZATION_ENDPOINT = os.getenv("SSO_AUTHORIZATION_ENDPOINT", "")
+    SSO_TOKEN_ENDPOINT = os.getenv("SSO_TOKEN_ENDPOINT", "")
+    SSO_USERINFO_ENDPOINT = os.getenv("SSO_USERINFO_ENDPOINT", "")
+    SSO_SCOPES = os.getenv("SSO_SCOPES", "openid email profile")
+    SSO_ALLOWED_DOMAINS = os.getenv("SSO_ALLOWED_DOMAINS", "")
+    SSO_ALLOWED_EMAILS = os.getenv("SSO_ALLOWED_EMAILS", "")
+    SSO_ADMIN_ROLE_CLAIM = os.getenv("SSO_ADMIN_ROLE_CLAIM", "")
+
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///clock_records.db")
 

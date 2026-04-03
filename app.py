@@ -20,10 +20,12 @@ from models.database import init_db, SystemConfig
 from cisco.cti_handler import CTIHandler
 from ukg.api_client import UKGApiClient
 from ukg.retry_worker import RetryWorker
+from auth import init_sso
 from routes.ivr import ivr_bp
 from routes.webhooks import webhooks_bp
 from routes.api import api_bp
 from routes.admin import admin_bp
+from routes.auth_routes import auth_bp
 
 
 def _load_db_config(session_factory, key, env_default):
@@ -86,11 +88,45 @@ def create_app(config=None):
     retry_worker.start()
     atexit.register(retry_worker.stop)
 
+    # SSO configuration
+    app.config["SSO_ENABLED"] = getattr(cfg, "SSO_ENABLED", False)
+    app.config["SSO_PROVIDER_NAME"] = getattr(cfg, "SSO_PROVIDER_NAME", "oauth")
+    app.config["SSO_CLIENT_ID"] = getattr(cfg, "SSO_CLIENT_ID", "")
+    app.config["SSO_CLIENT_SECRET"] = getattr(cfg, "SSO_CLIENT_SECRET", "")
+    app.config["SSO_DISCOVERY_URL"] = getattr(cfg, "SSO_DISCOVERY_URL", "")
+    app.config["SSO_AUTHORIZATION_ENDPOINT"] = getattr(cfg, "SSO_AUTHORIZATION_ENDPOINT", "")
+    app.config["SSO_TOKEN_ENDPOINT"] = getattr(cfg, "SSO_TOKEN_ENDPOINT", "")
+    app.config["SSO_USERINFO_ENDPOINT"] = getattr(cfg, "SSO_USERINFO_ENDPOINT", "")
+    app.config["SSO_SCOPES"] = getattr(cfg, "SSO_SCOPES", "openid email profile")
+    app.config["SSO_ALLOWED_DOMAINS"] = getattr(cfg, "SSO_ALLOWED_DOMAINS", "")
+    app.config["SSO_ALLOWED_EMAILS"] = getattr(cfg, "SSO_ALLOWED_EMAILS", "")
+    app.config["SSO_ADMIN_ROLE_CLAIM"] = getattr(cfg, "SSO_ADMIN_ROLE_CLAIM", "")
+
+    # Load SSO overrides from DB
+    sso_db_keys = [
+        "sso_enabled", "sso_provider_name", "sso_client_id", "sso_client_secret",
+        "sso_discovery_url", "sso_authorization_endpoint", "sso_token_endpoint",
+        "sso_userinfo_endpoint", "sso_scopes", "sso_allowed_domains",
+        "sso_allowed_emails", "sso_admin_role_claim",
+    ]
+    for key in sso_db_keys:
+        db_val = _load_db_config(db_session_factory, key, "")
+        if db_val:
+            app_key = key.upper()
+            if app_key == "SSO_ENABLED":
+                app.config[app_key] = db_val.lower() == "true"
+            else:
+                app.config[app_key] = db_val
+
+    # Initialize SSO
+    init_sso(app)
+
     # Register route blueprints
     app.register_blueprint(ivr_bp)
     app.register_blueprint(webhooks_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(auth_bp)
 
     # Root endpoint redirects to admin dashboard
     @app.route("/")

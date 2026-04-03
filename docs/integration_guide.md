@@ -17,7 +17,13 @@ Workforce Management API.
    - [API Endpoints Used](#ukg-api-endpoints-used)
    - [Testing the Connection](#testing-the-ukg-connection)
    - [Failover & Retry Behavior](#failover--retry-behavior)
-3. [Cisco CUCM Connection](#cisco-cucm-connection)
+3. [Single Sign-On (SSO) Configuration](#single-sign-on-sso-configuration)
+   - [SSO Prerequisites](#sso-prerequisites)
+   - [Identity Provider Setup](#identity-provider-setup)
+   - [Application Configuration](#sso-application-configuration)
+   - [Access Control](#access-control)
+   - [Provider-Specific Guides](#provider-specific-guides)
+4. [Cisco CUCM Connection](#cisco-cucm-connection)
    - [Prerequisites](#cisco-prerequisites)
    - [CUCM Administration Setup](#cucm-administration-setup)
    - [CTI Route Point Configuration](#cti-route-point-configuration)
@@ -26,9 +32,9 @@ Workforce Management API.
    - [Configuration](#cisco-configuration)
    - [AXL API Connection (Optional)](#axl-api-connection-optional)
    - [Testing the Connection](#testing-the-cisco-connection)
-4. [Network Requirements](#network-requirements)
-5. [Configuration Methods](#configuration-methods)
-6. [Troubleshooting](#troubleshooting)
+5. [Network Requirements](#network-requirements)
+6. [Configuration Methods](#configuration-methods)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -236,6 +242,213 @@ unreachable:
   punches; use the **Retry Failed** button for immediate re-sync
 - **Retry worker stats** are displayed on the dashboard: total retried,
   succeeded, and exhausted counts
+
+---
+
+## Single Sign-On (SSO) Configuration
+
+The admin portal supports OAuth2/OIDC Single Sign-On with any standards-compliant
+identity provider. When SSO is enabled, all `/admin/*` routes require
+authentication. Phone IVR endpoints, webhooks, and the REST API are **not**
+affected by SSO — they remain accessible without login.
+
+### SSO Prerequisites
+
+- An OAuth2/OIDC identity provider (any of the following):
+  - Microsoft Entra ID (Azure AD)
+  - Okta
+  - Google Workspace
+  - Keycloak
+  - Auth0
+  - Any OIDC-compliant provider
+- Ability to register a new application/client in your identity provider
+- The application server must be accessible via HTTPS in production
+  (required for secure OAuth2 callbacks)
+
+### Identity Provider Setup
+
+Register a new application in your identity provider with these settings:
+
+| Setting | Value |
+|---|---|
+| **Application Type** | Web Application |
+| **Redirect / Callback URL** | `https://<app-host>:5000/auth/callback` |
+| **Allowed Logout URL** | `https://<app-host>:5000/auth/login-page` |
+| **Scopes / Permissions** | `openid`, `email`, `profile` |
+| **Grant Type** | Authorization Code |
+
+After registration, note down:
+- **Client ID**
+- **Client Secret**
+- **OIDC Discovery URL** (usually `https://<provider>/.well-known/openid-configuration`)
+
+### SSO Application Configuration
+
+**Option A: Environment Variables (`.env` file)**
+
+```bash
+SSO_ENABLED=true
+SSO_PROVIDER_NAME=okta                    # Display label on login button
+SSO_CLIENT_ID=your-client-id
+SSO_CLIENT_SECRET=your-client-secret
+SSO_SCOPES=openid email profile
+
+# Recommended: OIDC Discovery (auto-configures all endpoints)
+SSO_DISCOVERY_URL=https://your-provider.com/.well-known/openid-configuration
+
+# Alternative: Manual endpoint configuration (if no discovery URL)
+# SSO_AUTHORIZATION_ENDPOINT=https://your-provider.com/authorize
+# SSO_TOKEN_ENDPOINT=https://your-provider.com/token
+# SSO_USERINFO_ENDPOINT=https://your-provider.com/userinfo
+```
+
+**Option B: Admin Portal**
+
+1. Navigate to `http://<app-host>:5000/admin/config`
+2. Scroll to the **Single Sign-On (SSO)** section
+3. Set SSO Status to **Enabled**
+4. Fill in Client ID, Client Secret, and Discovery URL
+5. Click **Save Configuration**
+6. **Restart the application** (SSO changes require a restart)
+
+> **Important:** The callback URL displayed on the config page must be
+> registered in your identity provider. Copy it exactly.
+
+### Access Control
+
+Three optional access control mechanisms can be combined:
+
+**1. Domain Allowlist**
+
+Restrict access to users from specific email domains:
+
+```bash
+SSO_ALLOWED_DOMAINS=example.com,company.com
+```
+
+Only users with `@example.com` or `@company.com` email addresses can log in.
+Leave blank to allow all domains.
+
+**2. Email Allowlist**
+
+Restrict access to specific email addresses:
+
+```bash
+SSO_ALLOWED_EMAILS=admin@example.com,ops@example.com
+```
+
+Only the listed email addresses can log in. Leave blank to allow all
+authenticated users.
+
+**3. Role-Based Access via JWT Claims**
+
+If your identity provider includes role information in the JWT token or
+userinfo response, you can require an `admin` role:
+
+```bash
+SSO_ADMIN_ROLE_CLAIM=roles
+```
+
+This tells the application to look for a `roles` claim in the user's token
+and verify it contains `"admin"`. The claim name varies by provider:
+- Okta: `groups` or a custom claim
+- Azure AD: `roles`
+- Keycloak: `realm_access.roles` (configure as a flat claim)
+- Auth0: Custom claim via Rules/Actions
+
+Leave blank to skip role checking.
+
+### Provider-Specific Guides
+
+#### Microsoft Entra ID (Azure AD)
+
+1. Go to **Azure Portal > Microsoft Entra ID > App registrations > New registration**
+2. Set redirect URI to `https://<app-host>:5000/auth/callback` (type: Web)
+3. Under **Certificates & secrets**, create a new client secret
+4. Under **API permissions**, add `openid`, `email`, `profile`
+5. Configure:
+   ```bash
+   SSO_PROVIDER_NAME=azure
+   SSO_CLIENT_ID=<Application (client) ID>
+   SSO_CLIENT_SECRET=<Client secret value>
+   SSO_DISCOVERY_URL=https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration
+   ```
+
+#### Okta
+
+1. Go to **Okta Admin > Applications > Create App Integration**
+2. Select **OIDC - OpenID Connect** and **Web Application**
+3. Set sign-in redirect URI to `https://<app-host>:5000/auth/callback`
+4. Configure:
+   ```bash
+   SSO_PROVIDER_NAME=okta
+   SSO_CLIENT_ID=<Client ID>
+   SSO_CLIENT_SECRET=<Client Secret>
+   SSO_DISCOVERY_URL=https://<your-domain>.okta.com/.well-known/openid-configuration
+   ```
+
+#### Google Workspace
+
+1. Go to **Google Cloud Console > APIs & Services > Credentials**
+2. Create an **OAuth 2.0 Client ID** (Web application)
+3. Add authorized redirect URI: `https://<app-host>:5000/auth/callback`
+4. Configure:
+   ```bash
+   SSO_PROVIDER_NAME=google
+   SSO_CLIENT_ID=<Client ID>
+   SSO_CLIENT_SECRET=<Client Secret>
+   SSO_DISCOVERY_URL=https://accounts.google.com/.well-known/openid-configuration
+   SSO_ALLOWED_DOMAINS=your-company.com
+   ```
+
+#### Keycloak
+
+1. Create a new client in your Keycloak realm
+2. Set access type to **confidential**, redirect URI to `https://<app-host>:5000/auth/callback`
+3. Configure:
+   ```bash
+   SSO_PROVIDER_NAME=keycloak
+   SSO_CLIENT_ID=<Client ID>
+   SSO_CLIENT_SECRET=<Client Secret>
+   SSO_DISCOVERY_URL=https://<keycloak-host>/realms/<realm>/.well-known/openid-configuration
+   ```
+
+### SSO Login Flow
+
+```
+User visits /admin/*
+    |
+    v
+[Authenticated?] --No--> [Redirect to /auth/login]
+    |                          |
+    |Yes                       v
+    |                    [Redirect to Identity Provider]
+    v                          |
+[Show admin page]              v
+                         [User authenticates at IdP]
+                               |
+                               v
+                         [IdP redirects to /auth/callback]
+                               |
+                               v
+                         [Exchange code for token]
+                               |
+                               v
+                         [Fetch user info]
+                               |
+                               v
+                         [Check domain/email/role]
+                               |
+                         +-----+-----+
+                         |           |
+                      Allowed    Denied
+                         |           |
+                         v           v
+                   [Create session] [Show error]
+                         |
+                         v
+                   [Redirect to /admin/]
+```
 
 ---
 
@@ -515,3 +728,15 @@ can change UKG or CUCM credentials without restarting the application.
 | AXL test fails with `Connection refused` | Wrong CUCM host or port | Verify CUCM hostname and ensure port 8443 is accessible. |
 | AXL test fails with `401` | Wrong Application User credentials | Verify the username/password and that the user has `Standard AXL API Access` role. |
 | Caller not recognized | Caller ID not in employee roster | Add the employee's phone number as their Caller ID in the admin portal under Employees. |
+
+### SSO Issues
+
+| Symptom | Likely Cause | Resolution |
+|---|---|---|
+| "Authentication failed" after login | Token exchange error | Verify Client ID and Client Secret. Check that the callback URL registered in your IdP matches exactly: `https://<host>:5000/auth/callback`. |
+| "Access denied: Domain not allowed" | User's email domain not in allowlist | Add the domain to `SSO_ALLOWED_DOMAINS` or clear it to allow all domains. |
+| "Access denied: Email not in allowed list" | User's email not in allowlist | Add the email to `SSO_ALLOWED_EMAILS` or clear it to allow all authenticated users. |
+| "Access denied: User does not have admin role" | Role claim missing or incorrect | Verify the `SSO_ADMIN_ROLE_CLAIM` matches the claim name in your IdP's tokens. Ensure the user is assigned the `admin` role in your IdP. |
+| Redirect loop after login | Session cookie issue | Ensure `FLASK_SECRET_KEY` is set to a strong random value. If behind a reverse proxy, ensure it forwards `X-Forwarded-Proto: https`. |
+| SSO button does nothing | Discovery URL unreachable | Verify the app server can reach the OIDC Discovery URL. Check DNS and outbound HTTPS. |
+| SSO changes don't take effect | Config requires restart | SSO provider registration happens at startup. After changing SSO settings, restart the application. |

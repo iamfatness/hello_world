@@ -12,11 +12,24 @@ import logging
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash,
-    current_app, jsonify,
+    current_app, jsonify, session,
 )
+
+from auth import login_required
 
 logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+
+@admin_bp.before_request
+def _require_login():
+    """Apply login_required to all admin routes."""
+    if not current_app.config.get("SSO_ENABLED"):
+        return None
+    user = session.get("user")
+    if not user:
+        session["next_url"] = request.url
+        return redirect(url_for("auth.login"))
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +71,18 @@ def _load_all_config(session):
         "cucm_version": Config.CUCM_VERSION,
         "cti_route_point_dn": Config.CTI_ROUTE_POINT_DN,
         "cti_device_name": Config.CTI_DEVICE_NAME,
+        "sso_enabled": str(Config.SSO_ENABLED).lower(),
+        "sso_provider_name": Config.SSO_PROVIDER_NAME,
+        "sso_client_id": Config.SSO_CLIENT_ID,
+        "sso_client_secret": Config.SSO_CLIENT_SECRET,
+        "sso_discovery_url": Config.SSO_DISCOVERY_URL,
+        "sso_authorization_endpoint": Config.SSO_AUTHORIZATION_ENDPOINT,
+        "sso_token_endpoint": Config.SSO_TOKEN_ENDPOINT,
+        "sso_userinfo_endpoint": Config.SSO_USERINFO_ENDPOINT,
+        "sso_scopes": Config.SSO_SCOPES,
+        "sso_allowed_domains": Config.SSO_ALLOWED_DOMAINS,
+        "sso_allowed_emails": Config.SSO_ALLOWED_EMAILS,
+        "sso_admin_role_claim": Config.SSO_ADMIN_ROLE_CLAIM,
     }
     result = {}
     for key, default in keys_defaults.items():
@@ -149,12 +174,13 @@ def dashboard():
 
 @admin_bp.route("/config")
 def config_page():
-    session = current_app.config["DB_SESSION_FACTORY"]()
+    db = current_app.config["DB_SESSION_FACTORY"]()
     try:
-        config = _load_all_config(session)
-        return render_template("config.html", config=config)
+        config = _load_all_config(db)
+        callback_url = url_for("auth.callback", _external=True)
+        return render_template("config.html", config=config, callback_url=callback_url)
     finally:
-        session.close()
+        db.close()
 
 
 @admin_bp.route("/config/save", methods=["POST"])
@@ -166,6 +192,10 @@ def save_config():
             "ukg_username", "ukg_password", "ukg_user_api_key",
             "cucm_host", "cucm_username", "cucm_password", "cucm_version",
             "cti_route_point_dn", "cti_device_name",
+            "sso_enabled", "sso_provider_name", "sso_client_id", "sso_client_secret",
+            "sso_discovery_url", "sso_authorization_endpoint", "sso_token_endpoint",
+            "sso_userinfo_endpoint", "sso_scopes", "sso_allowed_domains",
+            "sso_allowed_emails", "sso_admin_role_claim",
         ]
         for key in config_keys:
             value = request.form.get(key, "")
