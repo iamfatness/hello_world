@@ -10,17 +10,30 @@ Usage:
     gunicorn app:create_app()      # Run with Gunicorn for production
 """
 
+import atexit
 import logging
 
 from flask import Flask
 
 from config import Config
-from models.database import init_db
+from models.database import init_db, SystemConfig
 from cisco.cti_handler import CTIHandler
 from ukg.api_client import UKGApiClient
+from ukg.retry_worker import RetryWorker
 from routes.ivr import ivr_bp
 from routes.webhooks import webhooks_bp
 from routes.api import api_bp
+from routes.admin import admin_bp
+
+
+def _load_db_config(session_factory, key, env_default):
+    """Load a config value from the database, falling back to env default."""
+    session = session_factory()
+    try:
+        row = session.query(SystemConfig).filter_by(config_key=key).first()
+        return row.config_value if row and row.config_value else env_default
+    finally:
+        session.close()
 
 
 def create_app(config=None):
@@ -55,30 +68,39 @@ def create_app(config=None):
     cti_handler = CTIHandler(db_session_factory)
     app.config["CTI_HANDLER"] = cti_handler
 
-    # Initialize UKG API client
+    # Initialize UKG API client - prefer DB-saved config over env defaults
     ukg_client = UKGApiClient(
-        base_url=cfg.UKG_BASE_URL,
-        api_key=cfg.UKG_API_KEY,
-        client_id=cfg.UKG_CLIENT_ID,
-        client_secret=cfg.UKG_CLIENT_SECRET,
-        username=cfg.UKG_USERNAME,
-        password=cfg.UKG_PASSWORD,
-        user_api_key=cfg.UKG_USER_API_KEY,
+        base_url=_load_db_config(db_session_factory, "ukg_base_url", cfg.UKG_BASE_URL),
+        api_key=_load_db_config(db_session_factory, "ukg_api_key", cfg.UKG_API_KEY),
+        client_id=_load_db_config(db_session_factory, "ukg_client_id", cfg.UKG_CLIENT_ID),
+        client_secret=_load_db_config(db_session_factory, "ukg_client_secret", cfg.UKG_CLIENT_SECRET),
+        username=_load_db_config(db_session_factory, "ukg_username", cfg.UKG_USERNAME),
+        password=_load_db_config(db_session_factory, "ukg_password", cfg.UKG_PASSWORD),
+        user_api_key=_load_db_config(db_session_factory, "ukg_user_api_key", cfg.UKG_USER_API_KEY),
     )
     app.config["UKG_CLIENT"] = ukg_client
+
+    # Start background retry worker for failed UKG syncs
+    retry_worker = RetryWorker(db_session_factory, ukg_client)
+    app.config["RETRY_WORKER"] = retry_worker
+    retry_worker.start()
+    atexit.register(retry_worker.stop)
 
     # Register route blueprints
     app.register_blueprint(ivr_bp)
     app.register_blueprint(webhooks_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(admin_bp)
 
-    # Root endpoint
+    # Root endpoint redirects to admin dashboard
     @app.route("/")
     def index():
         return {
             "service": "Cisco-UKG Clock Integration",
             "version": "1.0.0",
+            "admin_portal": "/admin/",
             "endpoints": {
+                "admin": "/admin/",
                 "ivr_menu": "/ivr/menu",
                 "call_webhook": "/webhook/call",
                 "health": "/webhook/health",

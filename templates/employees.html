@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Employees{% endblock %}
+{% block content %}
+<div class="toolbar">
+    <h2 style="font-size:20px;">Employees</h2>
+    <button class="btn btn-primary" onclick="document.getElementById('add-modal').classList.add('active')">Add Employee</button>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th>Employee ID</th>
+                <th>Name</th>
+                <th>Phone Extension</th>
+                <th>Caller ID</th>
+                <th>UKG ID</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in employees %}
+            <tr>
+                <td><strong>{{ e.employee_id }}</strong></td>
+                <td>{{ e.name }}</td>
+                <td>{{ e.phone_extension or '—' }}</td>
+                <td>{{ e.caller_id or '—' }}</td>
+                <td>{{ e.ukg_employee_id }}</td>
+                <td>
+                    <button class="btn btn-outline btn-sm" onclick="editEmployee('{{ e.employee_id }}', '{{ e.name }}', '{{ e.phone_extension or '' }}', '{{ e.caller_id or '' }}', '{{ e.ukg_employee_id }}')">Edit</button>
+                    <form method="POST" action="{{ url_for('admin.delete_employee', employee_id=e.employee_id) }}" style="display:inline;" onsubmit="return confirm('Remove {{ e.name }}?')">
+                        <button class="btn btn-danger btn-sm" type="submit">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" style="text-align:center;color:#888;padding:32px;">No employees registered. Click "Add Employee" to get started.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Add Employee Modal -->
+<div class="modal-overlay" id="add-modal">
+    <div class="modal">
+        <h2>Add Employee</h2>
+        <form method="POST" action="{{ url_for('admin.add_employee') }}">
+            <div class="form-group">
+                <label>Employee ID</label>
+                <input type="text" name="employee_id" required>
+            </div>
+            <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" name="name" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Phone Extension</label>
+                    <input type="text" name="phone_extension">
+                </div>
+                <div class="form-group">
+                    <label>Caller ID</label>
+                    <input type="text" name="caller_id">
+                    <div class="help">For automatic identification</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>UKG Employee ID</label>
+                <input type="text" name="ukg_employee_id" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('add-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Employee</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Employee Modal -->
+<div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+        <h2>Edit Employee</h2>
+        <form method="POST" action="{{ url_for('admin.update_employee') }}">
+            <input type="hidden" name="employee_id" id="edit-employee-id">
+            <div class="form-group">
+                <label>Employee ID</label>
+                <input type="text" id="edit-employee-id-display" disabled style="background:#f0f0f0;">
+            </div>
+            <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" name="name" id="edit-name" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Phone Extension</label>
+                    <input type="text" name="phone_extension" id="edit-phone">
+                </div>
+                <div class="form-group">
+                    <label>Caller ID</label>
+                    <input type="text" name="caller_id" id="edit-caller-id">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>UKG Employee ID</label>
+                <input type="text" name="ukg_employee_id" id="edit-ukg-id" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('edit-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function editEmployee(id, name, phone, callerId, ukgId) {
+    document.getElementById('edit-employee-id').value = id;
+    document.getElementById('edit-employee-id-display').value = id;
+    document.getElementById('edit-name').value = name;
+    document.getElementById('edit-phone').value = phone;
+    document.getElementById('edit-caller-id').value = callerId;
+    document.getElementById('edit-ukg-id').value = ukgId;
+    document.getElementById('edit-modal').classList.add('active');
+}
+</script>
+{% endblock %}

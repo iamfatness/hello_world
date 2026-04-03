@@ -51,6 +51,11 @@ def app():
 
     yield application
 
+    # Stop retry worker
+    worker = application.config.get("RETRY_WORKER")
+    if worker:
+        worker.stop()
+
 
 @pytest.fixture
 def client(app):

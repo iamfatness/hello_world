@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Punches{% endblock %}
+{% block content %}
+<div class="toolbar">
+    <h2 style="font-size:20px;">Time Punches</h2>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <form method="GET" style="display:flex;gap:8px;align-items:center;">
+            <input type="date" name="date" value="{{ selected_date }}" onchange="this.form.submit()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+            <select name="status" onchange="this.form.submit()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+                <option value="">All Statuses</option>
+                <option value="success" {{ 'selected' if selected_status == 'success' }}>Synced</option>
+                <option value="pending" {{ 'selected' if selected_status == 'pending' }}>Pending</option>
+                <option value="failed" {{ 'selected' if selected_status == 'failed' }}>Failed</option>
+            </select>
+            <select name="employee_id" onchange="this.form.submit()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+                <option value="">All Employees</option>
+                {% for e in employees %}
+                <option value="{{ e.employee_id }}" {{ 'selected' if selected_employee == e.employee_id }}>{{ e.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        <form method="POST" action="{{ url_for('admin.retry_failed') }}" style="display:inline;">
+            <input type="hidden" name="date" value="{{ selected_date }}">
+            <button class="btn btn-success btn-sm" type="submit">Retry Failed</button>
+        </form>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('manual-punch-modal').classList.add('active')">Manual Punch</button>
+    </div>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Time</th>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>Source</th>
+                <th>UKG Sync</th>
+                <th>Retries</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in punches %}
+            <tr>
+                <td>{{ p.id }}</td>
+                <td>{{ p.punch_time.strftime('%Y-%m-%d %I:%M %p') }}</td>
+                <td>{{ p.employee_id }}</td>
+                <td>
+                    <span class="badge {{ 'badge-success' if p.punch_type == 'clock_in' else 'badge-info' }}">
+                        {{ 'Clock In' if p.punch_type == 'clock_in' else 'Clock Out' }}
+                    </span>
+                </td>
+                <td>{{ p.source_caller_id or 'Manual' }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if p.ukg_synced == 'success' else ('danger' if p.ukg_synced == 'failed' else 'warning') }}">
+                        {{ p.ukg_synced }}
+                    </span>
+                    {% if p.ukg_response %}
+                    <span title="{{ p.ukg_response }}" style="cursor:help;color:#888;"> (?)</span>
+                    {% endif %}
+                </td>
+                <td>{{ p.retry_count or 0 }}</td>
+                <td>
+                    <button class="btn btn-outline btn-sm" onclick="editPunch({{ p.id }}, '{{ p.employee_id }}', '{{ p.punch_type }}', '{{ p.punch_time.strftime('%Y-%m-%dT%H:%M') }}')">Edit</button>
+                    <form method="POST" action="{{ url_for('admin.delete_punch', punch_id=p.id) }}" style="display:inline;" onsubmit="return confirm('Delete this punch?')">
+                        <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" style="text-align:center;color:#888;padding:32px;">No punches found for the selected criteria.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Manual Punch Modal -->
+<div class="modal-overlay" id="manual-punch-modal">
+    <div class="modal">
+        <h2>Add Manual Punch</h2>
+        <form method="POST" action="{{ url_for('admin.add_manual_punch') }}">
+            <div class="form-group">
+                <label>Employee</label>
+                <select name="employee_id" required style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;">
+                    <option value="">Select employee...</option>
+                    {% for e in employees %}
+                    <option value="{{ e.employee_id }}">{{ e.name }} ({{ e.employee_id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Punch Type</label>
+                    <select name="punch_type" required>
+                        <option value="clock_in">Clock In</option>
+                        <option value="clock_out">Clock Out</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Date/Time</label>
+                    <input type="datetime-local" name="punch_time" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="sync_to_ukg" checked style="width:auto;margin-right:6px;">
+                    Sync to UKG
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('manual-punch-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Record Punch</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Punch Modal -->
+<div class="modal-overlay" id="edit-punch-modal">
+    <div class="modal">
+        <h2>Edit Punch</h2>
+        <form method="POST" action="{{ url_for('admin.update_punch') }}">
+            <input type="hidden" name="punch_id" id="ep-id">
+            <div class="form-group">
+                <label>Employee ID</label>
+                <input type="text" id="ep-employee" disabled style="background:#f0f0f0;">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Punch Type</label>
+                    <select name="punch_type" id="ep-type">
+                        <option value="clock_in">Clock In</option>
+                        <option value="clock_out">Clock Out</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Date/Time</label>
+                    <input type="datetime-local" name="punch_time" id="ep-time" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="resync_ukg" style="width:auto;margin-right:6px;">
+                    Re-sync to UKG after saving
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('edit-punch-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function editPunch(id, empId, type, time) {
+    document.getElementById('ep-id').value = id;
+    document.getElementById('ep-employee').value = empId;
+    document.getElementById('ep-type').value = type;
+    document.getElementById('ep-time').value = time;
+    document.getElementById('edit-punch-modal').classList.add('active');
+}
+</script>
+{% endblock %}

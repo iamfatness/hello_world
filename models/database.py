@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Enum
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Enum, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
@@ -34,7 +34,26 @@ class TimePunch(Base):
     ukg_synced = Column(Enum("pending", "success", "failed", name="sync_status_enum"),
                         default="pending")
     ukg_response = Column(String(500))
+    retry_count = Column(Integer, default=0)
+    last_retry_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class SystemConfig(Base):
+    """Stores runtime configuration for UKG and CUCM connections.
+
+    Settings saved here override the environment-variable defaults,
+    allowing admins to change connection parameters from the portal
+    without restarting the application.
+    """
+
+    __tablename__ = "system_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    config_key = Column(String(100), unique=True, nullable=False, index=True)
+    config_value = Column(Text, default="")
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow,
+                        onupdate=datetime.datetime.utcnow)
 
 
 def init_db(database_url):

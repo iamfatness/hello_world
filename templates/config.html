@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Configuration{% endblock %}
+{% block content %}
+<form method="POST" action="{{ url_for('admin.save_config') }}">
+    <div class="card">
+        <h2>UKG API Connection</h2>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="ukg_base_url">Base URL</label>
+                <input type="text" id="ukg_base_url" name="ukg_base_url" value="{{ config.ukg_base_url }}" placeholder="https://your-tenant.ultipro.com">
+                <div class="help">UKG Pro WFM API base URL</div>
+            </div>
+            <div class="form-group">
+                <label for="ukg_api_key">API Key</label>
+                <input type="password" id="ukg_api_key" name="ukg_api_key" value="{{ config.ukg_api_key }}" placeholder="Enter API key">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="ukg_client_id">Client ID</label>
+                <input type="text" id="ukg_client_id" name="ukg_client_id" value="{{ config.ukg_client_id }}">
+            </div>
+            <div class="form-group">
+                <label for="ukg_client_secret">Client Secret</label>
+                <input type="password" id="ukg_client_secret" name="ukg_client_secret" value="{{ config.ukg_client_secret }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="ukg_username">Username</label>
+                <input type="text" id="ukg_username" name="ukg_username" value="{{ config.ukg_username }}">
+            </div>
+            <div class="form-group">
+                <label for="ukg_password">Password</label>
+                <input type="password" id="ukg_password" name="ukg_password" value="{{ config.ukg_password }}">
+            </div>
+        </div>
+        <div class="form-group" style="max-width:calc(50% - 8px)">
+            <label for="ukg_user_api_key">User API Key</label>
+            <input type="password" id="ukg_user_api_key" name="ukg_user_api_key" value="{{ config.ukg_user_api_key }}">
+        </div>
+
+        <div style="margin-top:8px;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="testUKG()">Test Connection</button>
+            <span id="ukg-test-result" style="margin-left:12px;font-size:13px;"></span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Cisco CUCM Connection</h2>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="cucm_host">CUCM Host</label>
+                <input type="text" id="cucm_host" name="cucm_host" value="{{ config.cucm_host }}" placeholder="cucm.example.com">
+            </div>
+            <div class="form-group">
+                <label for="cucm_version">CUCM Version</label>
+                <input type="text" id="cucm_version" name="cucm_version" value="{{ config.cucm_version }}" placeholder="14.0">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="cucm_username">Username</label>
+                <input type="text" id="cucm_username" name="cucm_username" value="{{ config.cucm_username }}">
+            </div>
+            <div class="form-group">
+                <label for="cucm_password">Password</label>
+                <input type="password" id="cucm_password" name="cucm_password" value="{{ config.cucm_password }}">
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>CTI Route Point</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cti_route_point_dn">Directory Number</label>
+                    <input type="text" id="cti_route_point_dn" name="cti_route_point_dn" value="{{ config.cti_route_point_dn }}" placeholder="5000">
+                    <div class="help">The extension employees dial to clock in/out</div>
+                </div>
+                <div class="form-group">
+                    <label for="cti_device_name">Device Name</label>
+                    <input type="text" id="cti_device_name" name="cti_device_name" value="{{ config.cti_device_name }}" placeholder="ClockInRoutePoint">
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top:8px;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="testCUCM()">Test Connection</button>
+            <span id="cucm-test-result" style="margin-left:12px;font-size:13px;"></span>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+    </div>
+</form>
+
+<script>
+function testUKG() {
+    const el = document.getElementById('ukg-test-result');
+    el.textContent = 'Testing...';
+    el.style.color = '#666';
+    fetch('{{ url_for("admin.test_ukg_connection") }}', {method:'POST'})
+        .then(r => r.json())
+        .then(d => {
+            el.textContent = d.success ? 'Connected successfully' : 'Failed: ' + d.error;
+            el.style.color = d.success ? '#16a34a' : '#dc2626';
+        })
+        .catch(() => { el.textContent = 'Request failed'; el.style.color = '#dc2626'; });
+}
+function testCUCM() {
+    const el = document.getElementById('cucm-test-result');
+    el.textContent = 'Testing...';
+    el.style.color = '#666';
+    fetch('{{ url_for("admin.test_cucm_connection") }}', {method:'POST'})
+        .then(r => r.json())
+        .then(d => {
+            el.textContent = d.success ? 'Connected successfully' : 'Failed: ' + d.error;
+            el.style.color = d.success ? '#16a34a' : '#dc2626';
+        })
+        .catch(() => { el.textContent = 'Request failed'; el.style.color = '#dc2626'; });
+}
+</script>
+{% endblock %}

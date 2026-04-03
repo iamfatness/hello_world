@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card info">
+        <div class="value">{{ total_employees }}</div>
+        <div class="label">Registered Employees</div>
+    </div>
+    <div class="stat-card success">
+        <div class="value">{{ today_punches }}</div>
+        <div class="label">Punches Today</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="value">{{ pending_syncs }}</div>
+        <div class="label">Pending Syncs</div>
+    </div>
+    <div class="stat-card danger">
+        <div class="value">{{ failed_syncs }}</div>
+        <div class="label">Failed Syncs</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>System Status</h2>
+    <table>
+        <tr>
+            <td style="width:200px;font-weight:600;">UKG API</td>
+            <td>
+                <span class="status-dot {{ 'green' if ukg_status == 'connected' else 'red' }}"></span>
+                {{ ukg_status|title }}
+            </td>
+        </tr>
+        <tr>
+            <td style="font-weight:600;">CUCM</td>
+            <td>
+                <span class="status-dot {{ 'green' if cucm_status == 'configured' else 'yellow' }}"></span>
+                {{ cucm_status|title }}
+            </td>
+        </tr>
+        <tr>
+            <td style="font-weight:600;">Retry Worker</td>
+            <td>
+                <span class="status-dot {{ 'green' if retry_stats.running else 'red' }}"></span>
+                {{ 'Running' if retry_stats.running else 'Stopped' }}
+                {% if retry_stats.last_run %} | Last run: {{ retry_stats.last_run }}{% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td style="font-weight:600;">Retry Stats</td>
+            <td>
+                {{ retry_stats.total_retried }} retried |
+                {{ retry_stats.total_succeeded }} succeeded |
+                {{ retry_stats.total_exhausted }} exhausted
+            </td>
+        </tr>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Recent Punches</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>UKG Sync</th>
+                <th>Retries</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in recent_punches %}
+            <tr>
+                <td>{{ p.punch_time.strftime('%I:%M %p') }}</td>
+                <td>{{ p.employee_id }}</td>
+                <td>
+                    <span class="badge {{ 'badge-success' if p.punch_type == 'clock_in' else 'badge-info' }}">
+                        {{ 'Clock In' if p.punch_type == 'clock_in' else 'Clock Out' }}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge badge-{{ 'success' if p.ukg_synced == 'success' else ('danger' if p.ukg_synced == 'failed' else 'warning') }}">
+                        {{ p.ukg_synced }}
+                    </span>
+                </td>
+                <td>{{ p.retry_count or 0 }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align:center;color:#888;">No punches today</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
