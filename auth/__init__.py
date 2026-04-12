@@ -22,6 +22,14 @@ import logging
 from flask import session, redirect, url_for, request, current_app
 from authlib.integrations.flask_client import OAuth
 
+from auth.api_keys import (
+    create_api_key,
+    generate_api_key,
+    hash_key,
+    machine_auth_required,
+    verify_api_key,
+)
+
 logger = logging.getLogger(__name__)
 
 oauth = OAuth()

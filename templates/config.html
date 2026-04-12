@@ -91,6 +91,19 @@
     </div>
 
     <div class="card">
+        <h2>Machine API Authentication</h2>
+        <p style="font-size:13px;color:#666;margin-bottom:16px;">Require an API key on the <code>/ivr/*</code>, <code>/webhook/*</code>, and <code>/api/*</code> endpoints. When enabled, Cisco phones, CUCM webhooks, and REST API clients must supply a valid key. Manage keys on the <a href="{{ url_for('admin.api_keys_page') }}">API Keys</a> page.</p>
+        <div class="form-group">
+            <label for="api_auth_enabled">API Auth Status</label>
+            <select id="api_auth_enabled" name="api_auth_enabled">
+                <option value="false" {{ '' if config.api_auth_enabled == 'true' else 'selected' }}>Disabled (endpoints are open)</option>
+                <option value="true" {{ 'selected' if config.api_auth_enabled == 'true' else '' }}>Enabled (require API key)</option>
+            </select>
+            <div class="help">Admins with an active SSO session always bypass this check. The <code>/webhook/health</code> endpoint remains open for monitoring regardless.</div>
+        </div>
+    </div>
+
+    <div class="card">
         <h2>Single Sign-On (SSO)</h2>
         <p style="font-size:13px;color:#666;margin-bottom:16px;">Configure OAuth2/OIDC authentication for the admin portal. Supports Okta, Azure AD (Entra ID), Google Workspace, Keycloak, Auth0, and any OIDC-compliant provider.</p>
 

@@ -25,9 +25,16 @@ from cisco.phone_services import (
     build_confirmation_screen,
     build_status_screen,
 )
+from auth.api_keys import machine_auth_required
 
 logger = logging.getLogger(__name__)
 ivr_bp = Blueprint("ivr", __name__, url_prefix="/ivr")
+
+
+@ivr_bp.before_request
+def _require_machine_auth():
+    """Require API key (or SSO session) for all /ivr endpoints."""
+    return machine_auth_required()
 
 
 def _xml_response(xml_bytes):

@@ -74,6 +74,7 @@
             <a href="{{ url_for('admin.config_page') }}" class="{% if request.endpoint == 'admin.config_page' %}active{% endif %}">Configuration</a>
             <a href="{{ url_for('admin.employees_page') }}" class="{% if request.endpoint == 'admin.employees_page' %}active{% endif %}">Employees</a>
             <a href="{{ url_for('admin.punches_page') }}" class="{% if request.endpoint == 'admin.punches_page' %}active{% endif %}">Punches</a>
+            <a href="{{ url_for('admin.api_keys_page') }}" class="{% if request.endpoint == 'admin.api_keys_page' %}active{% endif %}">API Keys</a>
         </nav>
         {% if session.get('user') %}
         <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">

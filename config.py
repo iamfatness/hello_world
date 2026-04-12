@@ -47,6 +47,11 @@ class Config:
     SSO_ALLOWED_EMAILS = os.getenv("SSO_ALLOWED_EMAILS", "")
     SSO_ADMIN_ROLE_CLAIM = os.getenv("SSO_ADMIN_ROLE_CLAIM", "")
 
+    # Machine-to-machine authentication for /ivr, /webhook, /api endpoints.
+    # When enabled, callers must supply an API key (via X-API-Key header or
+    # api_key query param) unless they already have a valid SSO session.
+    API_AUTH_ENABLED = os.getenv("API_AUTH_ENABLED", "false").lower() == "true"
+
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///clock_records.db")
 

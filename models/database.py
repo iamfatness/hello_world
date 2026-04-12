@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Enum, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Enum, Text, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
@@ -54,6 +54,27 @@ class SystemConfig(Base):
     config_value = Column(Text, default="")
     updated_at = Column(DateTime, default=datetime.datetime.utcnow,
                         onupdate=datetime.datetime.utcnow)
+
+
+class ApiKey(Base):
+    """API keys for machine-to-machine authentication.
+
+    Used to authenticate requests from Cisco IP phones, CUCM webhooks,
+    and external integrations to the /ivr/*, /webhook/*, and /api/*
+    endpoints. Keys are stored as a SHA-256 hash; the plaintext is only
+    shown once at creation time.
+    """
+
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    key_prefix = Column(String(12), nullable=False, index=True)
+    key_hash = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_by = Column(String(200), default="")
+    last_used_at = Column(DateTime)
+    revoked = Column(Boolean, default=False, nullable=False)
 
 
 def init_db(database_url):

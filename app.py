@@ -88,6 +88,9 @@ def create_app(config=None):
     retry_worker.start()
     atexit.register(retry_worker.stop)
 
+    # Machine-to-machine API key authentication (ivr/webhook/api routes)
+    app.config["API_AUTH_ENABLED"] = getattr(cfg, "API_AUTH_ENABLED", False)
+
     # SSO configuration
     app.config["SSO_ENABLED"] = getattr(cfg, "SSO_ENABLED", False)
     app.config["SSO_PROVIDER_NAME"] = getattr(cfg, "SSO_PROVIDER_NAME", "oauth")
@@ -117,6 +120,11 @@ def create_app(config=None):
                 app.config[app_key] = db_val.lower() == "true"
             else:
                 app.config[app_key] = db_val
+
+    # Load API auth toggle from DB
+    api_auth_db = _load_db_config(db_session_factory, "api_auth_enabled", "")
+    if api_auth_db:
+        app.config["API_AUTH_ENABLED"] = api_auth_db.lower() == "true"
 
     # Initialize SSO
     init_sso(app)

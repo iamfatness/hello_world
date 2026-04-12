@@ -23,7 +23,12 @@ Workforce Management API.
    - [Application Configuration](#sso-application-configuration)
    - [Access Control](#access-control)
    - [Provider-Specific Guides](#provider-specific-guides)
-4. [Cisco CUCM Connection](#cisco-cucm-connection)
+4. [Machine API Authentication](#machine-api-authentication)
+   - [Enabling Machine API Authentication](#enabling-machine-api-authentication)
+   - [Creating API Keys](#creating-api-keys)
+   - [Presenting the Key on Requests](#presenting-the-key-on-requests)
+   - [Revoking Keys](#revoking-keys)
+5. [Cisco CUCM Connection](#cisco-cucm-connection)
    - [Prerequisites](#cisco-prerequisites)
    - [CUCM Administration Setup](#cucm-administration-setup)
    - [CTI Route Point Configuration](#cti-route-point-configuration)
@@ -32,9 +37,9 @@ Workforce Management API.
    - [Configuration](#cisco-configuration)
    - [AXL API Connection (Optional)](#axl-api-connection-optional)
    - [Testing the Connection](#testing-the-cisco-connection)
-5. [Network Requirements](#network-requirements)
-6. [Configuration Methods](#configuration-methods)
-7. [Troubleshooting](#troubleshooting)
+6. [Network Requirements](#network-requirements)
+7. [Configuration Methods](#configuration-methods)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -249,8 +254,9 @@ unreachable:
 
 The admin portal supports OAuth2/OIDC Single Sign-On with any standards-compliant
 identity provider. When SSO is enabled, all `/admin/*` routes require
-authentication. Phone IVR endpoints, webhooks, and the REST API are **not**
-affected by SSO — they remain accessible without login.
+authentication. Phone IVR endpoints, webhooks, and the REST API are not
+affected by SSO — they are protected separately via API keys (see the
+[Machine API Authentication](#machine-api-authentication) section below).
 
 ### SSO Prerequisites
 
@@ -452,6 +458,133 @@ User visits /admin/*
 
 ---
 
+## Machine API Authentication
+
+The `/ivr/*`, `/webhook/*`, and `/api/*` endpoints are called by machines
+(Cisco IP phones, CUCM webhook posts, and external integrations) that
+cannot complete an interactive OAuth2 login flow. When machine API
+authentication is enabled, these callers must present a pre-shared API
+key on every request.
+
+The `/webhook/health` endpoint is exempted so external monitoring
+systems (load balancers, Nagios, Datadog, Kubernetes probes) can reach
+it without a key. Admin users with an active SSO session automatically
+bypass the API key check, so you can browse these endpoints from the
+portal for testing.
+
+### Enabling Machine API Authentication
+
+**Option A: Admin Portal**
+
+1. Log in to `/admin/` and open the **API Keys** page.
+2. Create one or more keys (see below). Copy each plaintext value -
+   it is only shown once and only a hash is stored server-side.
+3. Open the **Configuration** page and set **API Auth Status** to
+   *Enabled (require API key)*. Click **Save Configuration**.
+4. Update your CUCM Phone Service URL, any REST API clients, and any
+   other callers to include the key.
+
+**Option B: Environment Variable**
+
+```bash
+API_AUTH_ENABLED=true
+```
+
+Create the keys via the admin portal first - they cannot be injected
+via environment variables because the hash is stored in the database.
+
+### Creating API Keys
+
+On the **API Keys** page, enter a descriptive name (e.g. "CUCM Webhook",
+"IVR Phones", "Monitoring Script") and click **Generate Key**. The new
+key is displayed once in a yellow banner - copy it immediately. Keys
+are 42 characters long, prefixed with `ckuk_`.
+
+Each key record stores:
+
+| Field | Description |
+|---|---|
+| Name | Human-readable label |
+| Prefix | First 8 characters, shown in the UI for identification |
+| Created | Timestamp of creation |
+| Created By | Email of the SSO user who created it (if any) |
+| Last Used | Timestamp of the most recent successful authentication |
+| Status | Active or Revoked |
+
+### Presenting the Key on Requests
+
+Callers supply the key in one of three ways:
+
+**1. HTTP header (recommended for REST/API clients):**
+
+```bash
+curl -H "X-API-Key: ckuk_abcdef0123456789abcdef0123456789" \
+     http://clock.example.com:5000/api/employees
+```
+
+**2. Query string parameter** (required for Cisco Phone Service URLs
+which cannot set custom headers):
+
+```
+http://clock.example.com:5000/webhook/call?callerid=#DEVICENAME#&callednumber=#DIRN#&api_key=ckuk_abcdef...
+```
+
+**3. Form-encoded POST body** (for legacy CUCM HTTP triggers):
+
+```
+api_key=ckuk_abcdef...&callerid=...&callednumber=...
+```
+
+### Revoking Keys
+
+On the **API Keys** page, click **Revoke** next to a compromised or
+retired key. Revocation takes effect immediately - existing requests
+using that key will receive `401 Invalid or revoked API key` on their
+next call. A revoked key can be permanently deleted with the **Delete**
+button.
+
+### Security Notes
+
+- Only a SHA-256 hash of each key is stored; the plaintext is never
+  written to disk after creation.
+- Use separate keys for each caller (one per CUCM server, one per
+  phone service, one per script) so you can revoke individually.
+- API key auth is opt-in (`API_AUTH_ENABLED=false` by default) so
+  existing deployments continue to work while you provision keys.
+- HTTPS is strongly recommended in production. Keys passed in URL
+  query strings end up in access logs - rotate them periodically.
+
+### Auth Decision Flow
+
+```
+           Request to /ivr/*, /webhook/*, or /api/*
+                          |
+                          v
+                 API_AUTH_ENABLED?
+                   /           \
+                 No             Yes
+                 |               |
+                 v               v
+              [Allow]    SSO session present?
+                           /          \
+                         Yes           No
+                         |              |
+                         v              v
+                      [Allow]     API key present?
+                                    /          \
+                                  No            Yes
+                                  |              |
+                                  v              v
+                              [401]        Valid and active?
+                                             /          \
+                                           Yes           No
+                                           |              |
+                                           v              v
+                                        [Allow]         [401]
+```
+
+---
+
 ## Cisco CUCM Connection
 
 ### Cisco Prerequisites
@@ -532,8 +665,11 @@ This approach makes the phone fetch XML pages from the application:
    - **Service Name:** `Time Clock`
    - **Service URL:**
      ```
-     http://<app-host>:5000/webhook/call?callerid=#DEVICENAME#&callednumber=#DIRN#
+     http://<app-host>:5000/webhook/call?callerid=#DEVICENAME#&callednumber=#DIRN#&api_key=<API_KEY>
      ```
+     > Replace `<API_KEY>` with a key generated on the admin portal's
+     > **API Keys** page when machine API authentication is enabled.
+     > Omit the `api_key` parameter if machine auth is disabled.
    - **Service Category:** XML Service
    - **Service Type:** Standard IP Phone Service
 4. Click **Save**

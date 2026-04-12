@@ -8,8 +8,16 @@ import datetime
 import logging
 from flask import Blueprint, request, jsonify, current_app
 
+from auth.api_keys import machine_auth_required
+
 logger = logging.getLogger(__name__)
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+
+@api_bp.before_request
+def _require_machine_auth():
+    """Require API key (or SSO session) for all /api endpoints."""
+    return machine_auth_required()
 
 
 @api_bp.route("/employees", methods=["GET"])

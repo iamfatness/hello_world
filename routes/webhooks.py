@@ -9,9 +9,22 @@ import logging
 from flask import Blueprint, request, Response, current_app
 
 from cisco.phone_services import build_welcome_menu, build_employee_id_prompt
+from auth.api_keys import machine_auth_required
 
 logger = logging.getLogger(__name__)
 webhooks_bp = Blueprint("webhooks", __name__, url_prefix="/webhook")
+
+
+@webhooks_bp.before_request
+def _require_machine_auth():
+    """Require API key (or SSO session) for webhook endpoints.
+
+    The health check is exempted so external monitoring systems
+    (load balancers, Nagios, Datadog, k8s probes) can reach it.
+    """
+    if request.endpoint == "webhooks.health_check":
+        return None
+    return machine_auth_required()
 
 
 @webhooks_bp.route("/call", methods=["POST", "GET"])

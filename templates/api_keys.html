@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}API Keys{% endblock %}
+{% block content %}
+
+<div class="card">
+    <h2>Machine-to-Machine Authentication</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:12px;">
+        API keys authenticate requests from Cisco IP phones, CUCM webhooks, and external
+        integrations to the <code>/ivr/*</code>, <code>/webhook/*</code>, and <code>/api/*</code>
+        endpoints. Requests must include either an <code>X-API-Key</code> header or an
+        <code>api_key</code> query parameter.
+    </p>
+    <p style="font-size:13px;color:#666;">
+        Current status:
+        {% if api_auth_enabled %}
+            <span class="badge badge-success">Enabled</span> - all machine endpoints require a key.
+        {% else %}
+            <span class="badge badge-warning">Disabled</span> - endpoints are open. Enable on the
+            <a href="{{ url_for('admin.config_page') }}">Configuration</a> page once you've
+            distributed keys to your CUCM and phone services.
+        {% endif %}
+    </p>
+</div>
+
+{% if new_key %}
+<div class="alert alert-warning" style="font-family:monospace;">
+    <strong>New key '{{ new_key.name }}' created.</strong> Copy it now - it will not be shown again:
+    <div style="background:#fff;border:1px solid #fde68a;padding:10px;border-radius:6px;margin-top:8px;word-break:break-all;">
+        {{ new_key.plaintext }}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Create New Key</h2>
+    <form method="POST" action="{{ url_for('admin.create_api_key_route') }}">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="name">Key Name</label>
+                <input type="text" id="name" name="name" placeholder="e.g. CUCM Webhook, IVR Phone Service" required>
+                <div class="help">Descriptive label identifying where this key will be used.</div>
+            </div>
+            <div class="form-group" style="align-self:end;">
+                <button type="submit" class="btn btn-primary">Generate Key</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Existing Keys</h2>
+    {% if keys %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Prefix</th>
+                <th>Created</th>
+                <th>Created By</th>
+                <th>Last Used</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for key in keys %}
+            <tr>
+                <td>{{ key.name }}</td>
+                <td><code>{{ key.key_prefix }}&hellip;</code></td>
+                <td>{{ key.created_at.strftime('%Y-%m-%d %H:%M') if key.created_at else '-' }}</td>
+                <td>{{ key.created_by or '-' }}</td>
+                <td>{{ key.last_used_at.strftime('%Y-%m-%d %H:%M') if key.last_used_at else 'Never' }}</td>
+                <td>
+                    {% if key.revoked %}
+                        <span class="badge badge-danger">Revoked</span>
+                    {% else %}
+                        <span class="badge badge-success">Active</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not key.revoked %}
+                    <form method="POST" action="{{ url_for('admin.revoke_api_key_route', key_id=key.id) }}" style="display:inline;" onsubmit="return confirm('Revoke this key? Integrations using it will stop working.');">
+                        <button type="submit" class="btn btn-outline btn-sm">Revoke</button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('admin.delete_api_key_route', key_id=key.id) }}" style="display:inline;" onsubmit="return confirm('Permanently delete this key record?');">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#666;font-size:14px;">No API keys yet. Create one above to get started.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Usage Examples</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:12px;">Include the API key in one of these forms:</p>
+    <p style="font-size:13px;"><strong>Header (preferred for REST API calls):</strong></p>
+    <pre style="background:#f5f5f5;padding:10px;border-radius:6px;font-size:12px;overflow-x:auto;">curl -H "X-API-Key: ckuk_..." http://localhost:5000/api/employees</pre>
+    <p style="font-size:13px;margin-top:12px;"><strong>Query string (for Cisco Phone Service URLs):</strong></p>
+    <pre style="background:#f5f5f5;padding:10px;border-radius:6px;font-size:12px;overflow-x:auto;">http://clock.example.com:5000/webhook/call?callerid=#DEVICENAME#&callednumber=#DIRN#&api_key=ckuk_...</pre>
+</div>
+
+{% endblock %}

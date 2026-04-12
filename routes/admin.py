@@ -16,6 +16,7 @@ from flask import (
 )
 
 from auth import login_required
+from auth.api_keys import create_api_key
 
 logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -71,6 +72,7 @@ def _load_all_config(session):
         "cucm_version": Config.CUCM_VERSION,
         "cti_route_point_dn": Config.CTI_ROUTE_POINT_DN,
         "cti_device_name": Config.CTI_DEVICE_NAME,
+        "api_auth_enabled": str(Config.API_AUTH_ENABLED).lower(),
         "sso_enabled": str(Config.SSO_ENABLED).lower(),
         "sso_provider_name": Config.SSO_PROVIDER_NAME,
         "sso_client_id": Config.SSO_CLIENT_ID,
@@ -192,6 +194,7 @@ def save_config():
             "ukg_username", "ukg_password", "ukg_user_api_key",
             "cucm_host", "cucm_username", "cucm_password", "cucm_version",
             "cti_route_point_dn", "cti_device_name",
+            "api_auth_enabled",
             "sso_enabled", "sso_provider_name", "sso_client_id", "sso_client_secret",
             "sso_discovery_url", "sso_authorization_endpoint", "sso_token_endpoint",
             "sso_userinfo_endpoint", "sso_scopes", "sso_allowed_domains",
@@ -205,6 +208,11 @@ def save_config():
 
         # Apply new UKG settings to the live client
         _apply_ukg_config(session)
+
+        # Apply API auth toggle live
+        current_app.config["API_AUTH_ENABLED"] = (
+            request.form.get("api_auth_enabled", "").lower() == "true"
+        )
 
         flash("Configuration saved successfully.", "success")
         logger.info("Configuration updated via admin portal")
@@ -531,3 +539,83 @@ def retry_failed():
     finally:
         session.close()
     return redirect(url_for("admin.punches_page", date=date_str))
+
+
+# ---------------------------------------------------------------------------
+# API Keys (machine-to-machine authentication)
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/api-keys")
+def api_keys_page():
+    from models.database import ApiKey
+    db = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        keys = db.query(ApiKey).order_by(ApiKey.created_at.desc()).all()
+        new_key = session.pop("_new_api_key", None)
+        return render_template(
+            "api_keys.html",
+            keys=keys,
+            new_key=new_key,
+            api_auth_enabled=current_app.config.get("API_AUTH_ENABLED", False),
+        )
+    finally:
+        db.close()
+
+
+@admin_bp.route("/api-keys/create", methods=["POST"])
+def create_api_key_route():
+    db = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        name = request.form.get("name", "").strip()
+        if not name:
+            flash("Key name is required.", "danger")
+            return redirect(url_for("admin.api_keys_page"))
+
+        created_by = ""
+        user = session.get("user")
+        if user:
+            created_by = user.get("email", "")
+
+        plaintext, key = create_api_key(db, name=name, created_by=created_by)
+        session["_new_api_key"] = {"name": name, "plaintext": plaintext}
+        flash(f"API key '{name}' created. Copy it now - it will not be shown again.", "success")
+        logger.info("API key created: %s (by %s)", name, created_by or "anonymous")
+    except Exception as e:
+        flash(f"Error creating key: {e}", "danger")
+        logger.exception("Error creating API key")
+    finally:
+        db.close()
+    return redirect(url_for("admin.api_keys_page"))
+
+
+@admin_bp.route("/api-keys/<int:key_id>/revoke", methods=["POST"])
+def revoke_api_key_route(key_id):
+    from models.database import ApiKey
+    db = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        key = db.get(ApiKey, key_id)
+        if not key:
+            flash("API key not found.", "danger")
+        else:
+            key.revoked = True
+            db.commit()
+            flash(f"Key '{key.name}' revoked.", "success")
+            logger.info("API key revoked: %s", key.name)
+    finally:
+        db.close()
+    return redirect(url_for("admin.api_keys_page"))
+
+
+@admin_bp.route("/api-keys/<int:key_id>/delete", methods=["POST"])
+def delete_api_key_route(key_id):
+    from models.database import ApiKey
+    db = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        key = db.get(ApiKey, key_id)
+        if key:
+            db.delete(key)
+            db.commit()
+            flash(f"Key '{key.name}' deleted.", "success")
+    finally:
+        db.close()
+    return redirect(url_for("admin.api_keys_page"))
