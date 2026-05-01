@@ -52,6 +52,25 @@ def build_employee_id_prompt(app_url, punch_type):
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
 
 
+def build_pin_prompt(app_url, employee_id, punch_type, caller_id=""):
+    """Prompt employee to enter their PIN for verification."""
+    root = etree.Element("CiscoIPPhoneInput")
+    etree.SubElement(root, "Title").text = "Enter PIN"
+    etree.SubElement(root, "Prompt").text = "Enter your PIN"
+    params = f"employee_id={employee_id}&type={punch_type}"
+    if caller_id:
+        params += f"&callerid={caller_id}"
+    etree.SubElement(root, "URL").text = f"{app_url}/ivr/verify-pin?{params}"
+
+    item = etree.SubElement(root, "InputItem")
+    etree.SubElement(item, "DisplayName").text = "PIN"
+    etree.SubElement(item, "QueryStringParam").text = "pin"
+    etree.SubElement(item, "DefaultValue").text = ""
+    etree.SubElement(item, "InputFlags").text = "N"
+
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
+
+
 def build_confirmation_screen(title, message):
     """Display a confirmation or error message on the phone screen."""
     root = etree.Element("CiscoIPPhoneText")
@@ -61,11 +80,11 @@ def build_confirmation_screen(title, message):
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
 
 
-def build_status_screen(employee_name, last_punch_type, last_punch_time):
+def build_status_screen(employee_name, last_punch_type, last_punch_time, local_time_str=None):
     """Show the employee their current clock status."""
     if last_punch_type:
         status = "Clocked In" if last_punch_type == "clock_in" else "Clocked Out"
-        time_str = last_punch_time.strftime("%I:%M %p") if last_punch_time else "N/A"
+        time_str = local_time_str or (last_punch_time.strftime("%I:%M %p") if last_punch_time else "N/A")
         message = f"Employee: {employee_name}\nStatus: {status}\nLast punch: {time_str}"
     else:
         message = f"Employee: {employee_name}\nNo punches recorded today."

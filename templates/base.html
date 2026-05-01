@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Admin{% endblock %} - Cisco-UKG Clock</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -75,6 +76,7 @@
             <a href="{{ url_for('admin.employees_page') }}" class="{% if request.endpoint == 'admin.employees_page' %}active{% endif %}">Employees</a>
             <a href="{{ url_for('admin.punches_page') }}" class="{% if request.endpoint == 'admin.punches_page' %}active{% endif %}">Punches</a>
             <a href="{{ url_for('admin.api_keys_page') }}" class="{% if request.endpoint == 'admin.api_keys_page' %}active{% endif %}">API Keys</a>
+            <a href="{{ url_for('admin.audit_log_page') }}" class="{% if request.endpoint == 'admin.audit_log_page' %}active{% endif %}">Audit Log</a>
         </nav>
         {% if session.get('user') %}
         <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
@@ -93,5 +95,16 @@
         {% endwith %}
         {% block content %}{% endblock %}
     </div>
+<script>
+document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(function(form) {
+    if (!form.querySelector('[name="csrf_token"]')) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'csrf_token';
+        input.value = document.querySelector('meta[name="csrf-token"]').content;
+        form.appendChild(input);
+    }
+});
+</script>
 </body>
 </html>

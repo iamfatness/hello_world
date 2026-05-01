@@ -16,6 +16,7 @@ class Employee(Base):
     phone_extension = Column(String(20), index=True)
     caller_id = Column(String(20), index=True)
     ukg_employee_id = Column(String(50), nullable=False)
+    pin_hash = Column(String(128))
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
@@ -75,6 +76,19 @@ class ApiKey(Base):
     created_by = Column(String(200), default="")
     last_used_at = Column(DateTime)
     revoked = Column(Boolean, default=False, nullable=False)
+
+
+class AuditLog(Base):
+    """Records admin actions for compliance and troubleshooting."""
+
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    user_email = Column(String(200), default="")
+    action = Column(String(100), nullable=False)
+    detail = Column(Text, default="")
+    ip_address = Column(String(45), default="")
 
 
 def init_db(database_url):

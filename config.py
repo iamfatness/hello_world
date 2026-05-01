@@ -48,9 +48,16 @@ class Config:
     SSO_ADMIN_ROLE_CLAIM = os.getenv("SSO_ADMIN_ROLE_CLAIM", "")
 
     # Machine-to-machine authentication for /ivr, /webhook, /api endpoints.
-    # When enabled, callers must supply an API key (via X-API-Key header or
-    # api_key query param) unless they already have a valid SSO session.
     API_AUTH_ENABLED = os.getenv("API_AUTH_ENABLED", "false").lower() == "true"
+
+    # Session
+    SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "480"))
+
+    # Timezone for display purposes (IANA name, e.g. "America/New_York")
+    TIMEZONE = os.getenv("TIMEZONE", "UTC")
+
+    # Employee PIN requirement on phone IVR
+    REQUIRE_EMPLOYEE_PIN = os.getenv("REQUIRE_EMPLOYEE_PIN", "false").lower() == "true"
 
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///clock_records.db")

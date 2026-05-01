@@ -65,5 +65,35 @@ def incoming_call():
 
 @webhooks_bp.route("/health", methods=["GET"])
 def health_check():
-    """Health check endpoint for monitoring."""
-    return {"status": "healthy", "service": "cisco-ukg-clock"}
+    """Health check endpoint for monitoring.
+
+    Reports database reachability and retry worker status.
+    """
+    checks = {"database": "ok", "retry_worker": "ok"}
+    healthy = True
+
+    # Database check
+    try:
+        db = current_app.config["DB_SESSION_FACTORY"]()
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db.close()
+    except Exception:
+        checks["database"] = "unreachable"
+        healthy = False
+
+    # Retry worker check
+    worker = current_app.config.get("RETRY_WORKER")
+    if worker:
+        stats = worker.get_stats()
+        if not stats.get("running"):
+            checks["retry_worker"] = "stopped"
+            healthy = False
+    else:
+        checks["retry_worker"] = "not configured"
+
+    status_code = 200 if healthy else 503
+    return {
+        "status": "healthy" if healthy else "degraded",
+        "service": "cisco-ukg-clock",
+        "checks": checks,
+    }, status_code

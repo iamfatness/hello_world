@@ -5,14 +5,19 @@ Provides pages for:
 - Configuration: UKG and CUCM connection settings
 - Employees: CRUD management of employee roster
 - Punches: view, correct, add, delete time punches
+- API Keys: machine-to-machine key management
+- Audit Log: view admin action history
 """
 
+import csv
 import datetime
+import hashlib
+import io
 import logging
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash,
-    current_app, jsonify, session,
+    current_app, jsonify, session, Response,
 )
 
 from auth import login_required
@@ -20,6 +25,24 @@ from auth.api_keys import create_api_key
 
 logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+
+def _audit(db_session, action, detail=""):
+    """Write an audit log entry for the current request."""
+    from models.database import AuditLog
+    user = session.get("user", {})
+    entry = AuditLog(
+        user_email=user.get("email", ""),
+        action=action,
+        detail=detail[:2000],
+        ip_address=request.remote_addr or "",
+    )
+    db_session.add(entry)
+
+
+def _hash_pin(pin):
+    """SHA-256 hash a numeric PIN."""
+    return hashlib.sha256(pin.encode("utf-8")).hexdigest()
 
 
 @admin_bp.before_request
@@ -72,6 +95,8 @@ def _load_all_config(session):
         "cucm_version": Config.CUCM_VERSION,
         "cti_route_point_dn": Config.CTI_ROUTE_POINT_DN,
         "cti_device_name": Config.CTI_DEVICE_NAME,
+        "timezone": Config.TIMEZONE,
+        "require_employee_pin": str(Config.REQUIRE_EMPLOYEE_PIN).lower(),
         "api_auth_enabled": str(Config.API_AUTH_ENABLED).lower(),
         "sso_enabled": str(Config.SSO_ENABLED).lower(),
         "sso_provider_name": Config.SSO_PROVIDER_NAME,
@@ -194,6 +219,7 @@ def save_config():
             "ukg_username", "ukg_password", "ukg_user_api_key",
             "cucm_host", "cucm_username", "cucm_password", "cucm_version",
             "cti_route_point_dn", "cti_device_name",
+            "timezone", "require_employee_pin",
             "api_auth_enabled",
             "sso_enabled", "sso_provider_name", "sso_client_id", "sso_client_secret",
             "sso_discovery_url", "sso_authorization_endpoint", "sso_token_endpoint",
@@ -209,11 +235,17 @@ def save_config():
         # Apply new UKG settings to the live client
         _apply_ukg_config(session)
 
-        # Apply API auth toggle live
+        # Apply live toggles
         current_app.config["API_AUTH_ENABLED"] = (
             request.form.get("api_auth_enabled", "").lower() == "true"
         )
+        current_app.config["TIMEZONE"] = request.form.get("timezone", "UTC") or "UTC"
+        current_app.config["REQUIRE_EMPLOYEE_PIN"] = (
+            request.form.get("require_employee_pin", "").lower() == "true"
+        )
 
+        _audit(session, "config.update", "Configuration saved")
+        session.commit()
         flash("Configuration saved successfully.", "success")
         logger.info("Configuration updated via admin portal")
     except Exception as e:
@@ -278,14 +310,17 @@ def add_employee():
     from models.database import Employee
     session = current_app.config["DB_SESSION_FACTORY"]()
     try:
+        pin_raw = request.form.get("pin", "").strip()
         emp = Employee(
             employee_id=request.form["employee_id"],
             name=request.form["name"],
             phone_extension=request.form.get("phone_extension") or None,
             caller_id=request.form.get("caller_id") or None,
             ukg_employee_id=request.form["ukg_employee_id"],
+            pin_hash=_hash_pin(pin_raw) if pin_raw else None,
         )
         session.add(emp)
+        _audit(session, "employee.add", f"{emp.employee_id} ({emp.name})")
         session.commit()
         flash(f"Employee {emp.name} added.", "success")
     except Exception as e:
@@ -314,6 +349,10 @@ def update_employee():
         emp.phone_extension = request.form.get("phone_extension") or None
         emp.caller_id = request.form.get("caller_id") or None
         emp.ukg_employee_id = request.form["ukg_employee_id"]
+        pin_raw = request.form.get("pin", "").strip()
+        if pin_raw:
+            emp.pin_hash = _hash_pin(pin_raw)
+        _audit(session, "employee.update", f"{emp.employee_id} ({emp.name})")
         session.commit()
         flash(f"Employee {emp.name} updated.", "success")
     except Exception as e:
@@ -331,6 +370,7 @@ def delete_employee(employee_id):
     try:
         emp = session.query(Employee).filter_by(employee_id=employee_id).first()
         if emp:
+            _audit(session, "employee.delete", f"{emp.employee_id} ({emp.name})")
             session.delete(emp)
             session.commit()
             flash(f"Employee {employee_id} removed.", "success")
@@ -400,6 +440,7 @@ def add_manual_punch():
             ukg_synced="pending",
         )
         session.add(punch)
+        _audit(session, "punch.add", f"{employee_id} {punch_type} {punch_time}")
         session.commit()
 
         if sync_to_ukg:
@@ -442,6 +483,7 @@ def update_punch():
 
         punch.punch_type = request.form["punch_type"]
         punch.punch_time = datetime.datetime.fromisoformat(request.form["punch_time"])
+        _audit(session, "punch.update", f"punch #{punch.id} {punch.employee_id}")
 
         resync = "resync_ukg" in request.form
         if resync:
@@ -480,6 +522,7 @@ def delete_punch(punch_id):
     try:
         punch = session.get(TimePunch,punch_id)
         if punch:
+            _audit(session, "punch.delete", f"punch #{punch_id} {punch.employee_id}")
             session.delete(punch)
             session.commit()
             flash("Punch deleted.", "success")
@@ -577,6 +620,8 @@ def create_api_key_route():
             created_by = user.get("email", "")
 
         plaintext, key = create_api_key(db, name=name, created_by=created_by)
+        _audit(db, "apikey.create", f"key '{name}'")
+        db.commit()
         session["_new_api_key"] = {"name": name, "plaintext": plaintext}
         flash(f"API key '{name}' created. Copy it now - it will not be shown again.", "success")
         logger.info("API key created: %s (by %s)", name, created_by or "anonymous")
@@ -598,6 +643,7 @@ def revoke_api_key_route(key_id):
             flash("API key not found.", "danger")
         else:
             key.revoked = True
+            _audit(db, "apikey.revoke", f"key '{key.name}'")
             db.commit()
             flash(f"Key '{key.name}' revoked.", "success")
             logger.info("API key revoked: %s", key.name)
@@ -613,9 +659,88 @@ def delete_api_key_route(key_id):
     try:
         key = db.get(ApiKey, key_id)
         if key:
+            _audit(db, "apikey.delete", f"key '{key.name}'")
             db.delete(key)
             db.commit()
             flash(f"Key '{key.name}' deleted.", "success")
     finally:
         db.close()
     return redirect(url_for("admin.api_keys_page"))
+
+
+# ---------------------------------------------------------------------------
+# CSV Export
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/punches/export")
+def export_punches_csv():
+    """Download punches as CSV for the selected date."""
+    from models.database import TimePunch, Employee
+    db = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        date_str = request.args.get("date", datetime.date.today().isoformat())
+        date = datetime.date.fromisoformat(date_str)
+
+        punches = (
+            db.query(TimePunch)
+            .filter(
+                TimePunch.punch_time >= datetime.datetime.combine(date, datetime.time.min),
+                TimePunch.punch_time <= datetime.datetime.combine(date, datetime.time.max),
+            )
+            .order_by(TimePunch.punch_time)
+            .all()
+        )
+
+        employees = {e.employee_id: e.name for e in db.query(Employee).all()}
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Punch ID", "Employee ID", "Employee Name", "Type",
+                         "Time (UTC)", "Source", "UKG Sync", "Retries"])
+        for p in punches:
+            writer.writerow([
+                p.id,
+                p.employee_id,
+                employees.get(p.employee_id, "Unknown"),
+                p.punch_type,
+                p.punch_time.isoformat(),
+                p.source_caller_id or "Manual",
+                p.ukg_synced,
+                p.retry_count or 0,
+            ])
+
+        resp = Response(output.getvalue(), mimetype="text/csv")
+        resp.headers["Content-Disposition"] = f'attachment; filename="punches_{date_str}.csv"'
+        return resp
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Audit Log
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/audit-log")
+def audit_log_page():
+    from models.database import AuditLog
+    db = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = 50
+        total = db.query(AuditLog).count()
+        entries = (
+            db.query(AuditLog)
+            .order_by(AuditLog.timestamp.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        return render_template(
+            "audit_log.html",
+            entries=entries,
+            page=page,
+            total_pages=total_pages,
+        )
+    finally:
+        db.close()

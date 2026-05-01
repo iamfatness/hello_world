@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block content %}
+<div class="toolbar">
+    <h2 style="font-size:20px;">Audit Log</h2>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Detail</th>
+                <th>IP</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for e in entries %}
+            <tr>
+                <td>{{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') if e.timestamp else '-' }}</td>
+                <td>{{ e.user_email or '-' }}</td>
+                <td><span class="badge badge-info">{{ e.action }}</span></td>
+                <td style="max-width:400px;word-break:break-all;">{{ e.detail or '-' }}</td>
+                <td>{{ e.ip_address or '-' }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5" style="text-align:center;color:#888;padding:32px;">No audit entries yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div style="display:flex;gap:8px;justify-content:center;margin-top:16px;">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}" class="btn btn-outline btn-sm">&laquo; Previous</a>
+    {% endif %}
+    <span style="padding:6px 12px;font-size:13px;color:#666;">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}" class="btn btn-outline btn-sm">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

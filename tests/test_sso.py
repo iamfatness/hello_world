@@ -56,6 +56,7 @@ class SSOEnabledConfig(SSODisabledConfig):
 def app_no_sso():
     application = create_app(config=SSODisabledConfig)
     application.config["TESTING"] = True
+    application.config["WTF_CSRF_ENABLED"] = False
     yield application
     worker = application.config.get("RETRY_WORKER")
     if worker:
@@ -71,6 +72,7 @@ def client_no_sso(app_no_sso):
 def app_sso():
     application = create_app(config=SSOEnabledConfig)
     application.config["TESTING"] = True
+    application.config["WTF_CSRF_ENABLED"] = False
     yield application
     worker = application.config.get("RETRY_WORKER")
     if worker:

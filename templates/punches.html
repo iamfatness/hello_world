@@ -23,6 +23,7 @@
             <input type="hidden" name="date" value="{{ selected_date }}">
             <button class="btn btn-success btn-sm" type="submit">Retry Failed</button>
         </form>
+        <a href="{{ url_for('admin.export_punches_csv', date=selected_date) }}" class="btn btn-outline btn-sm">Export CSV</a>
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('manual-punch-modal').classList.add('active')">Manual Punch</button>
     </div>
 </div>

@@ -80,6 +80,7 @@ def _seed_employee(application):
 def _make_app(config_cls):
     application = create_app(config=config_cls)
     application.config["TESTING"] = True
+    application.config["WTF_CSRF_ENABLED"] = False
     _seed_employee(application)
     return application
 

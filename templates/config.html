@@ -91,6 +91,25 @@
     </div>
 
     <div class="card">
+        <h2>General Settings</h2>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="timezone">Timezone</label>
+                <input type="text" id="timezone" name="timezone" value="{{ config.timezone }}" placeholder="America/New_York">
+                <div class="help">IANA timezone name. Used for displaying times on phone screens and in the admin portal.</div>
+            </div>
+            <div class="form-group">
+                <label for="require_employee_pin">Phone PIN Requirement</label>
+                <select id="require_employee_pin" name="require_employee_pin">
+                    <option value="false" {{ '' if config.require_employee_pin == 'true' else 'selected' }}>Disabled (employee ID only)</option>
+                    <option value="true" {{ 'selected' if config.require_employee_pin == 'true' else '' }}>Enabled (require PIN after ID)</option>
+                </select>
+                <div class="help">When enabled, employees must enter a PIN after their ID on the phone to prevent buddy punching. Set PINs on the Employees page.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
         <h2>Machine API Authentication</h2>
         <p style="font-size:13px;color:#666;margin-bottom:16px;">Require an API key on the <code>/ivr/*</code>, <code>/webhook/*</code>, and <code>/api/*</code> endpoints. When enabled, Cisco phones, CUCM webhooks, and REST API clients must supply a valid key. Manage keys on the <a href="{{ url_for('admin.api_keys_page') }}">API Keys</a> page.</p>
         <div class="form-group">
@@ -199,11 +218,12 @@
 </form>
 
 <script>
+var _csrf = document.querySelector('meta[name="csrf-token"]').content;
 function testUKG() {
     const el = document.getElementById('ukg-test-result');
     el.textContent = 'Testing...';
     el.style.color = '#666';
-    fetch('{{ url_for("admin.test_ukg_connection") }}', {method:'POST'})
+    fetch('{{ url_for("admin.test_ukg_connection") }}', {method:'POST', headers:{'X-CSRFToken':_csrf}})
         .then(r => r.json())
         .then(d => {
             el.textContent = d.success ? 'Connected successfully' : 'Failed: ' + d.error;
@@ -215,7 +235,7 @@ function testCUCM() {
     const el = document.getElementById('cucm-test-result');
     el.textContent = 'Testing...';
     el.style.color = '#666';
-    fetch('{{ url_for("admin.test_cucm_connection") }}', {method:'POST'})
+    fetch('{{ url_for("admin.test_cucm_connection") }}', {method:'POST', headers:{'X-CSRFToken':_csrf}})
         .then(r => r.json())
         .then(d => {
             el.textContent = d.success ? 'Connected successfully' : 'Failed: ' + d.error;

@@ -15,6 +15,7 @@
                 <th>Phone Extension</th>
                 <th>Caller ID</th>
                 <th>UKG ID</th>
+                <th>PIN</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -26,6 +27,7 @@
                 <td>{{ e.phone_extension or '—' }}</td>
                 <td>{{ e.caller_id or '—' }}</td>
                 <td>{{ e.ukg_employee_id }}</td>
+                <td>{{ 'Set' if e.pin_hash else '—' }}</td>
                 <td>
                     <button class="btn btn-outline btn-sm" onclick="editEmployee('{{ e.employee_id }}', '{{ e.name }}', '{{ e.phone_extension or '' }}', '{{ e.caller_id or '' }}', '{{ e.ukg_employee_id }}')">Edit</button>
                     <form method="POST" action="{{ url_for('admin.delete_employee', employee_id=e.employee_id) }}" style="display:inline;" onsubmit="return confirm('Remove {{ e.name }}?')">
@@ -34,7 +36,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="6" style="text-align:center;color:#888;padding:32px;">No employees registered. Click "Add Employee" to get started.</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:#888;padding:32px;">No employees registered. Click "Add Employee" to get started.</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -64,9 +66,16 @@
                     <div class="help">For automatic identification</div>
                 </div>
             </div>
-            <div class="form-group">
-                <label>UKG Employee ID</label>
-                <input type="text" name="ukg_employee_id" required>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>UKG Employee ID</label>
+                    <input type="text" name="ukg_employee_id" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone PIN</label>
+                    <input type="password" name="pin" pattern="\d{4,8}" placeholder="4-8 digit PIN">
+                    <div class="help">Required when PIN auth is enabled. Numeric, 4-8 digits.</div>
+                </div>
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-outline" onclick="document.getElementById('add-modal').classList.remove('active')">Cancel</button>
@@ -100,9 +109,16 @@
                     <input type="text" name="caller_id" id="edit-caller-id">
                 </div>
             </div>
-            <div class="form-group">
-                <label>UKG Employee ID</label>
-                <input type="text" name="ukg_employee_id" id="edit-ukg-id" required>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>UKG Employee ID</label>
+                    <input type="text" name="ukg_employee_id" id="edit-ukg-id" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone PIN</label>
+                    <input type="password" name="pin" pattern="\d{4,8}" placeholder="Leave blank to keep current">
+                    <div class="help">Enter new PIN to change, or leave blank to keep existing.</div>
+                </div>
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-outline" onclick="document.getElementById('edit-modal').classList.remove('active')">Cancel</button>

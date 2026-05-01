@@ -35,6 +35,7 @@ class TestConfig:
 def app():
     application = create_app(config=TestConfig)
     application.config["TESTING"] = True
+    application.config["WTF_CSRF_ENABLED"] = False
 
     # Seed a test employee
     session = application.config["DB_SESSION_FACTORY"]()

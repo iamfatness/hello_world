@@ -22,6 +22,7 @@ from flask import Blueprint, request, Response, current_app
 from cisco.phone_services import (
     build_welcome_menu,
     build_employee_id_prompt,
+    build_pin_prompt,
     build_confirmation_screen,
     build_status_screen,
 )
@@ -42,6 +43,18 @@ def _xml_response(xml_bytes):
     return Response(xml_bytes, content_type="text/xml; charset=UTF-8")
 
 
+def _format_local_time(utc_dt):
+    """Convert a UTC datetime to the configured timezone for display."""
+    from zoneinfo import ZoneInfo
+    tz_name = current_app.config.get("TIMEZONE", "UTC")
+    try:
+        tz = ZoneInfo(tz_name)
+    except (KeyError, Exception):
+        tz = ZoneInfo("UTC")
+    local_dt = utc_dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+    return local_dt.strftime("%I:%M %p")
+
+
 @ivr_bp.route("/menu")
 def main_menu():
     """Serve the main clock-in/clock-out menu to the phone."""
@@ -54,7 +67,7 @@ def punch_prompt():
     """Prompt for employee ID before recording a punch.
 
     If the caller is already identified (via Caller ID lookup), skip the
-    prompt and go directly to recording the punch.
+    prompt and go directly to recording the punch (or PIN prompt if required).
     """
     punch_type = request.args.get("type", "clock_in")
     caller_id = request.args.get("callerid", "")
@@ -65,7 +78,11 @@ def punch_prompt():
         cti = current_app.config["CTI_HANDLER"]
         result = cti.handle_incoming_call(caller_id, "")
         if result.get("recognized"):
-            return _record_punch(result["employee_id"], punch_type, caller_id)
+            if current_app.config.get("REQUIRE_EMPLOYEE_PIN"):
+                return _xml_response(
+                    build_pin_prompt(app_url, result["employee_id"], punch_type, caller_id)
+                )
+            return _maybe_record_punch(result["employee_id"], punch_type, caller_id)
 
     return _xml_response(build_employee_id_prompt(app_url, punch_type))
 
@@ -91,7 +108,13 @@ def authenticate_and_punch():
             build_confirmation_screen("Error", f"Employee ID {employee_id} not found.\nPlease try again.")
         )
 
-    return _record_punch(employee.employee_id, punch_type, caller_id)
+    if current_app.config.get("REQUIRE_EMPLOYEE_PIN"):
+        app_url = current_app.config.get("APP_URL", request.host_url.rstrip("/"))
+        return _xml_response(
+            build_pin_prompt(app_url, employee.employee_id, punch_type, caller_id)
+        )
+
+    return _maybe_record_punch(employee.employee_id, punch_type, caller_id)
 
 
 @ivr_bp.route("/status")
@@ -117,6 +140,74 @@ def check_status():
         return _xml_response(root_xml)
 
     return _show_status(employee_id)
+
+
+@ivr_bp.route("/verify-pin")
+def verify_pin():
+    """Verify the employee's PIN and then record the punch."""
+    import hashlib
+    employee_id = request.args.get("employee_id", "").strip()
+    punch_type = request.args.get("type", "clock_in")
+    caller_id = request.args.get("callerid", "")
+    pin = request.args.get("pin", "").strip()
+
+    if not employee_id or not pin:
+        return _xml_response(
+            build_confirmation_screen("Error", "Missing employee ID or PIN.")
+        )
+
+    from models.database import Employee
+    db_session = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        emp = db_session.query(Employee).filter(Employee.employee_id == employee_id).first()
+        if not emp:
+            return _xml_response(
+                build_confirmation_screen("Error", "Employee not found.")
+            )
+        if not emp.pin_hash:
+            return _xml_response(
+                build_confirmation_screen("Error", "No PIN set.\nContact your administrator.")
+            )
+        if hashlib.sha256(pin.encode("utf-8")).hexdigest() != emp.pin_hash:
+            logger.warning("Invalid PIN attempt for employee %s", employee_id)
+            return _xml_response(
+                build_confirmation_screen("Error", "Invalid PIN.\nPlease try again.")
+            )
+    finally:
+        db_session.close()
+
+    return _maybe_record_punch(employee_id, punch_type, caller_id)
+
+
+def _maybe_record_punch(employee_id, punch_type, caller_id):
+    """Check for duplicate punches before recording."""
+    from models.database import TimePunch
+
+    db_session = current_app.config["DB_SESSION_FACTORY"]()
+    try:
+        today = datetime.date.today()
+        last_punch = (
+            db_session.query(TimePunch)
+            .filter(
+                TimePunch.employee_id == employee_id,
+                TimePunch.punch_time >= datetime.datetime.combine(today, datetime.time.min),
+            )
+            .order_by(TimePunch.punch_time.desc())
+            .first()
+        )
+        if last_punch and last_punch.punch_type == punch_type:
+            action = "Clock In" if punch_type == "clock_in" else "Clock Out"
+            return _xml_response(
+                build_confirmation_screen(
+                    "Already Recorded",
+                    f"You already have a {action}\nrecorded today at\n"
+                    f"{last_punch.punch_time.strftime('%I:%M %p')}."
+                )
+            )
+    finally:
+        db_session.close()
+
+    return _record_punch(employee_id, punch_type, caller_id)
 
 
 def _record_punch(employee_id, punch_type, caller_id):
@@ -181,7 +272,7 @@ def _record_punch(employee_id, punch_type, caller_id):
             # and can be retried via the admin API
 
         action = "Clock In" if punch_type == "clock_in" else "Clock Out"
-        time_str = now.strftime("%I:%M %p")
+        time_str = _format_local_time(now)
         return _xml_response(
             build_confirmation_screen(
                 "Success",
@@ -227,11 +318,13 @@ def _show_status(employee_id):
             .first()
         )
 
+        local_str = _format_local_time(last_punch.punch_time) if last_punch else None
         return _xml_response(
             build_status_screen(
                 employee.name,
                 last_punch.punch_type if last_punch else None,
                 last_punch.punch_time if last_punch else None,
+                local_time_str=local_str,
             )
         )
     finally:

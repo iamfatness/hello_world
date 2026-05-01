@@ -11,9 +11,13 @@ Usage:
 """
 
 import atexit
+import datetime
 import logging
 
 from flask import Flask
+from flask_wtf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from config import Config
 from models.database import init_db, SystemConfig
@@ -26,6 +30,9 @@ from routes.webhooks import webhooks_bp
 from routes.api import api_bp
 from routes.admin import admin_bp
 from routes.auth_routes import auth_bp
+
+csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
 def _load_db_config(session_factory, key, env_default):
@@ -53,6 +60,27 @@ def create_app(config=None):
     cfg = config or Config
     app.config["SECRET_KEY"] = cfg.SECRET_KEY
     app.config["APP_URL"] = f"http://{cfg.HOST}:{cfg.PORT}"
+
+    # Session idle timeout
+    timeout = getattr(cfg, "SESSION_TIMEOUT_MINUTES", 480)
+    app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(minutes=timeout)
+
+    # Timezone
+    app.config["TIMEZONE"] = getattr(cfg, "TIMEZONE", "UTC")
+
+    # Employee PIN requirement
+    app.config["REQUIRE_EMPLOYEE_PIN"] = getattr(cfg, "REQUIRE_EMPLOYEE_PIN", False)
+
+    # CSRF protection — exempt machine endpoints that use API keys.
+    # WTF_CSRF_ENABLED can be set to False in test config classes.
+    app.config.setdefault("WTF_CSRF_ENABLED", True)
+    csrf.init_app(app)
+    csrf.exempt(ivr_bp)
+    csrf.exempt(webhooks_bp)
+    csrf.exempt(api_bp)
+
+    # Rate limiting
+    limiter.init_app(app)
 
     # Set up logging
     logging.basicConfig(
@@ -126,6 +154,16 @@ def create_app(config=None):
     if api_auth_db:
         app.config["API_AUTH_ENABLED"] = api_auth_db.lower() == "true"
 
+    # Load timezone from DB
+    tz_db = _load_db_config(db_session_factory, "timezone", "")
+    if tz_db:
+        app.config["TIMEZONE"] = tz_db
+
+    # Load PIN requirement from DB
+    pin_db = _load_db_config(db_session_factory, "require_employee_pin", "")
+    if pin_db:
+        app.config["REQUIRE_EMPLOYEE_PIN"] = pin_db.lower() == "true"
+
     # Initialize SSO
     init_sso(app)
 
@@ -135,6 +173,10 @@ def create_app(config=None):
     app.register_blueprint(api_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(auth_bp)
+
+    # Rate limits — auth endpoints are the most sensitive
+    limiter.limit("30/minute")(auth_bp)
+    limiter.limit("60/minute")(api_bp)
 
     # Root endpoint redirects to admin dashboard
     @app.route("/")
