@@ -133,7 +133,16 @@ def create_app(config=None):
     app.config["UKG_CLIENT"] = ukg_client
 
     # Start background retry worker for failed UKG syncs
-    retry_worker = RetryWorker(db_session_factory, ukg_client)
+    _app_logger = logging.getLogger(__name__)
+
+    def _exhausted_alert(punch):
+        _app_logger.critical(
+            "UKG sync permanently failed for punch #%d (employee %s, %s at %s). "
+            "Manual intervention required.",
+            punch.id, punch.employee_id, punch.punch_type, punch.punch_time,
+        )
+
+    retry_worker = RetryWorker(db_session_factory, ukg_client, alert_callback=_exhausted_alert)
     app.config["RETRY_WORKER"] = retry_worker
     retry_worker.start()
     atexit.register(retry_worker.stop)

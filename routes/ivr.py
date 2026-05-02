@@ -16,6 +16,7 @@ Flow:
 
 import datetime
 import logging
+import re
 
 from flask import Blueprint, request, Response, current_app
 
@@ -30,6 +31,35 @@ from auth.api_keys import machine_auth_required
 
 logger = logging.getLogger(__name__)
 ivr_bp = Blueprint("ivr", __name__, url_prefix="/ivr")
+
+_EMPLOYEE_ID_RE = re.compile(r'^[A-Za-z0-9]{1,20}$')
+_PIN_RE = re.compile(r'^\d{4,20}$')
+_VALID_PUNCH_TYPES = {"clock_in", "clock_out"}
+
+
+def _validate_employee_id(employee_id):
+    """Return error message string if invalid, else None."""
+    if not employee_id:
+        return "No Employee ID entered.\nPlease try again."
+    if not _EMPLOYEE_ID_RE.match(employee_id):
+        return "Invalid Employee ID format.\nUse up to 20 alphanumeric characters."
+    return None
+
+
+def _validate_pin(pin):
+    """Return error message string if invalid, else None."""
+    if not pin:
+        return "No PIN entered.\nPlease try again."
+    if not _PIN_RE.match(pin):
+        return "Invalid PIN.\nPIN must be 4-20 digits."
+    return None
+
+
+def _validate_punch_type(punch_type):
+    """Return error message string if invalid, else None."""
+    if punch_type not in _VALID_PUNCH_TYPES:
+        return "Invalid punch type."
+    return None
 
 
 @ivr_bp.before_request
@@ -94,10 +124,9 @@ def authenticate_and_punch():
     punch_type = request.args.get("type", "clock_in")
     caller_id = request.args.get("callerid", "")
 
-    if not employee_id:
-        return _xml_response(
-            build_confirmation_screen("Error", "No Employee ID entered.\nPlease try again.")
-        )
+    err = _validate_employee_id(employee_id) or _validate_punch_type(punch_type)
+    if err:
+        return _xml_response(build_confirmation_screen("Error", err))
 
     cti = current_app.config["CTI_HANDLER"]
     employee = cti.lookup_employee_by_id(employee_id)
@@ -151,10 +180,11 @@ def verify_pin():
     caller_id = request.args.get("callerid", "")
     pin = request.args.get("pin", "").strip()
 
-    if not employee_id or not pin:
-        return _xml_response(
-            build_confirmation_screen("Error", "Missing employee ID or PIN.")
-        )
+    err = (_validate_employee_id(employee_id)
+           or _validate_pin(pin)
+           or _validate_punch_type(punch_type))
+    if err:
+        return _xml_response(build_confirmation_screen("Error", err))
 
     from models.database import Employee
     db_session = current_app.config["DB_SESSION_FACTORY"]()

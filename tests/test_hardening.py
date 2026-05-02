@@ -179,7 +179,7 @@ def test_pin_missing_rejects(client_pin):
         "/ivr/verify-pin?employee_id=EMP001&type=clock_in&pin="
     )
     assert resp.status_code == 200
-    assert b"Missing" in resp.data or b"Invalid" in resp.data
+    assert b"Missing" in resp.data or b"Invalid" in resp.data or b"No PIN" in resp.data
 
 
 def test_caller_id_with_pin_shows_prompt(client_pin):

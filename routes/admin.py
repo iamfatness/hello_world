@@ -13,6 +13,7 @@ import csv
 import datetime
 import hashlib
 import io
+import json
 import logging
 
 from flask import (
@@ -27,10 +28,22 @@ logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
-def _audit(db_session, action, detail=""):
-    """Write an audit log entry for the current request."""
+def _audit(db_session, action, detail="", before=None, after=None):
+    """Write an audit log entry for the current request.
+
+    before/after are optional dicts capturing state before and after a change.
+    When provided they are serialised into the detail field as structured JSON
+    so the audit log captures exactly what changed.
+    """
     from models.database import AuditLog
     user = session.get("user", {})
+    if before is not None or after is not None:
+        payload = {"summary": detail}
+        if before is not None:
+            payload["before"] = before
+        if after is not None:
+            payload["after"] = after
+        detail = json.dumps(payload)
     entry = AuditLog(
         user_email=user.get("email", ""),
         action=action,
@@ -174,10 +187,18 @@ def dashboard():
         ukg_status = "connected" if cfg.get("ukg_base_url") else "not configured"
         cucm_status = "configured" if cfg.get("cucm_host") and cfg["cucm_host"] != "cucm.example.com" else "not configured"
 
+        from ukg.retry_worker import MAX_RETRIES
+        exhausted_syncs = (
+            session.query(TimePunch)
+            .filter(TimePunch.ukg_synced == "failed", TimePunch.retry_count >= MAX_RETRIES)
+            .count()
+        )
+
         retry_worker = current_app.config.get("RETRY_WORKER")
         retry_stats = retry_worker.get_stats() if retry_worker else {
             "running": False, "last_run": None,
             "total_retried": 0, "total_succeeded": 0, "total_exhausted": 0,
+            "exhausted_punch_ids": [],
         }
 
         return render_template(
@@ -186,6 +207,7 @@ def dashboard():
             today_punches=today_punches,
             pending_syncs=pending_syncs,
             failed_syncs=failed_syncs,
+            exhausted_syncs=exhausted_syncs,
             recent_punches=recent_punches,
             ukg_status=ukg_status,
             cucm_status=cucm_status,
@@ -368,6 +390,12 @@ def update_employee():
             flash("Employee not found.", "danger")
             return redirect(url_for("admin.employees_page"))
 
+        before_state = {
+            "name": emp.name,
+            "phone_extension": emp.phone_extension,
+            "caller_id": emp.caller_id,
+            "ukg_employee_id": emp.ukg_employee_id,
+        }
         emp.name = request.form["name"]
         emp.phone_extension = request.form.get("phone_extension") or None
         emp.caller_id = request.form.get("caller_id") or None
@@ -375,7 +403,14 @@ def update_employee():
         pin_raw = request.form.get("pin", "").strip()
         if pin_raw:
             emp.pin_hash = _hash_pin(pin_raw)
-        _audit(session, "employee.update", f"{emp.employee_id} ({emp.name})")
+        after_state = {
+            "name": emp.name,
+            "phone_extension": emp.phone_extension,
+            "caller_id": emp.caller_id,
+            "ukg_employee_id": emp.ukg_employee_id,
+        }
+        _audit(session, "employee.update", f"{emp.employee_id} ({emp.name})",
+               before=before_state, after=after_state)
         session.commit()
         flash(f"Employee {emp.name} updated.", "success")
     except Exception as e:
@@ -515,9 +550,19 @@ def update_punch():
             flash("Punch not found.", "danger")
             return redirect(url_for("admin.punches_page"))
 
+        before_state = {
+            "punch_type": punch.punch_type,
+            "punch_time": punch.punch_time.isoformat(),
+            "ukg_synced": punch.ukg_synced,
+        }
         punch.punch_type = request.form["punch_type"]
         punch.punch_time = datetime.datetime.fromisoformat(request.form["punch_time"])
-        _audit(session, "punch.update", f"punch #{punch.id} {punch.employee_id}")
+        after_state = {
+            "punch_type": punch.punch_type,
+            "punch_time": punch.punch_time.isoformat(),
+        }
+        _audit(session, "punch.update", f"punch #{punch.id} {punch.employee_id}",
+               before=before_state, after=after_state)
 
         resync = "resync_ukg" in request.form
         if resync:
@@ -554,9 +599,17 @@ def delete_punch(punch_id):
     from models.database import TimePunch
     session = current_app.config["DB_SESSION_FACTORY"]()
     try:
-        punch = session.get(TimePunch,punch_id)
+        punch = session.get(TimePunch, punch_id)
         if punch:
-            _audit(session, "punch.delete", f"punch #{punch_id} {punch.employee_id}")
+            before_state = {
+                "employee_id": punch.employee_id,
+                "punch_type": punch.punch_type,
+                "punch_time": punch.punch_time.isoformat(),
+                "ukg_synced": punch.ukg_synced,
+                "source_caller_id": punch.source_caller_id,
+            }
+            _audit(session, "punch.delete", f"punch #{punch_id} {punch.employee_id}",
+                   before=before_state)
             session.delete(punch)
             session.commit()
             flash("Punch deleted.", "success")

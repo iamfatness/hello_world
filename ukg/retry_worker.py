@@ -22,15 +22,17 @@ POLL_INTERVAL = 30  # seconds between scans
 class RetryWorker:
     """Background worker that retries failed UKG punch submissions."""
 
-    def __init__(self, db_session_factory, ukg_client):
+    def __init__(self, db_session_factory, ukg_client, alert_callback=None):
         self.db_session_factory = db_session_factory
         self.ukg_client = ukg_client
+        self._alert_callback = alert_callback
         self._stop_event = threading.Event()
         self._thread = None
         self.stats = {
             "total_retried": 0,
             "total_succeeded": 0,
             "total_exhausted": 0,
+            "exhausted_punch_ids": [],
             "last_run": None,
             "running": False,
         }
@@ -124,10 +126,13 @@ class RetryWorker:
                     punch.ukg_response = str(e)[:500]
                     if punch.retry_count >= MAX_RETRIES:
                         self.stats["total_exhausted"] += 1
+                        if punch.id not in self.stats["exhausted_punch_ids"]:
+                            self.stats["exhausted_punch_ids"].append(punch.id)
                         logger.error(
-                            "Punch %d exhausted all %d retries",
-                            punch.id, MAX_RETRIES,
+                            "Punch %d exhausted all %d retries for employee %s",
+                            punch.id, MAX_RETRIES, punch.employee_id,
                         )
+                        self._fire_alert(punch)
                     session.commit()
                     self.stats["total_retried"] += 1
                     logger.warning(
@@ -136,6 +141,14 @@ class RetryWorker:
                     )
         finally:
             session.close()
+
+    def _fire_alert(self, punch):
+        """Invoke the alert callback when a punch exhausts all retries."""
+        if self._alert_callback:
+            try:
+                self._alert_callback(punch)
+            except Exception:
+                logger.exception("Alert callback raised an exception for punch %d", punch.id)
 
     def get_stats(self):
         """Return current retry worker statistics."""
