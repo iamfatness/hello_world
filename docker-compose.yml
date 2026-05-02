@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      - db-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:////app/data/clock_records.db
+    restart: unless-stopped
+
+volumes:
+  db-data:

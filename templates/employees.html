@@ -3,7 +3,13 @@
 {% block content %}
 <div class="toolbar">
     <h2 style="font-size:20px;">Employees</h2>
-    <button class="btn btn-primary" onclick="document.getElementById('add-modal').classList.add('active')">Add Employee</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <form method="GET" style="display:flex;gap:8px;align-items:center;">
+            <input type="text" name="search" value="{{ search }}" placeholder="Search..." style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+            <button class="btn btn-outline btn-sm" type="submit">Search</button>
+        </form>
+        <button class="btn btn-primary" onclick="document.getElementById('add-modal').classList.add('active')">Add Employee</button>
+    </div>
 </div>
 
 <div class="card" style="padding:0;overflow:hidden;">
@@ -41,6 +47,18 @@
         </tbody>
     </table>
 </div>
+
+{% if total_pages > 1 %}
+<div style="display:flex;justify-content:center;gap:8px;margin-top:16px;">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}&search={{ search }}" class="btn btn-outline btn-sm">Previous</a>
+    {% endif %}
+    <span style="line-height:32px;color:#666;">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}&search={{ search }}" class="btn btn-outline btn-sm">Next</a>
+    {% endif %}
+</div>
+{% endif %}
 
 <!-- Add Employee Modal -->
 <div class="modal-overlay" id="add-modal">

@@ -64,3 +64,4 @@ class Config:
 
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FORMAT = os.getenv("LOG_FORMAT", "text")  # "text" or "json"

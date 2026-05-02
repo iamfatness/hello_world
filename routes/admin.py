@@ -299,8 +299,31 @@ def employees_page():
     from models.database import Employee
     session = current_app.config["DB_SESSION_FACTORY"]()
     try:
-        employees = session.query(Employee).order_by(Employee.name).all()
-        return render_template("employees.html", employees=employees)
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = 25
+        search = request.args.get("search", "").strip()
+
+        query = session.query(Employee)
+        if search:
+            like = f"%{search}%"
+            query = query.filter(
+                Employee.name.ilike(like) | Employee.employee_id.ilike(like)
+            )
+        total = query.count()
+        employees = (
+            query.order_by(Employee.name)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        return render_template(
+            "employees.html",
+            employees=employees,
+            page=page,
+            total_pages=total_pages,
+            search=search,
+        )
     finally:
         session.close()
 
@@ -407,7 +430,16 @@ def punches_page():
         if selected_employee:
             query = query.filter(TimePunch.employee_id == selected_employee)
 
-        punches = query.order_by(TimePunch.punch_time.desc()).all()
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = 50
+        total = query.count()
+        punches = (
+            query.order_by(TimePunch.punch_time.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        total_pages = max(1, (total + per_page - 1) // per_page)
         employees = session.query(Employee).order_by(Employee.name).all()
 
         return render_template(
@@ -417,6 +449,8 @@ def punches_page():
             selected_date=selected_date,
             selected_status=selected_status,
             selected_employee=selected_employee,
+            page=page,
+            total_pages=total_pages,
         )
     finally:
         session.close()

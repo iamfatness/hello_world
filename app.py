@@ -18,6 +18,7 @@ from flask import Flask
 from flask_wtf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
 
 from config import Config
 from models.database import init_db, SystemConfig
@@ -79,14 +80,35 @@ def create_app(config=None):
     csrf.exempt(webhooks_bp)
     csrf.exempt(api_bp)
 
+    # CORS for REST API
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
+
     # Rate limiting
     limiter.init_app(app)
 
     # Set up logging
-    logging.basicConfig(
-        level=getattr(logging, cfg.LOG_LEVEL, logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    log_format = getattr(cfg, "LOG_FORMAT", "text")
+    if log_format == "json":
+        import json as _json
+
+        class _JsonFormatter(logging.Formatter):
+            def format(self, record):
+                return _json.dumps({
+                    "time": self.formatTime(record),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "message": record.getMessage(),
+                })
+
+        handler = logging.StreamHandler()
+        handler.setFormatter(_JsonFormatter())
+        logging.root.handlers = [handler]
+        logging.root.setLevel(getattr(logging, cfg.LOG_LEVEL, logging.INFO))
+    else:
+        logging.basicConfig(
+            level=getattr(logging, cfg.LOG_LEVEL, logging.INFO),
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
     logger = logging.getLogger(__name__)
     logger.info("Initializing Cisco-UKG Clock application")
 

@@ -77,6 +77,18 @@
     </table>
 </div>
 
+{% if total_pages > 1 %}
+<div style="display:flex;justify-content:center;gap:8px;margin-top:16px;">
+    {% if page > 1 %}
+    <a href="?date={{ selected_date }}&status={{ selected_status }}&employee_id={{ selected_employee }}&page={{ page - 1 }}" class="btn btn-outline btn-sm">Previous</a>
+    {% endif %}
+    <span style="line-height:32px;color:#666;">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="?date={{ selected_date }}&status={{ selected_status }}&employee_id={{ selected_employee }}&page={{ page + 1 }}" class="btn btn-outline btn-sm">Next</a>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- Manual Punch Modal -->
 <div class="modal-overlay" id="manual-punch-modal">
     <div class="modal">
