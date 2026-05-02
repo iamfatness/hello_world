@@ -28,7 +28,7 @@ def _setup_db():
 def test_process_failed_punches_success():
     session_factory = _setup_db()
     ukg = MagicMock()
-    ukg.submit_time_punch.return_value = {"status": "ok"}
+    ukg.submit_punch_batch.return_value = [{"status": "accepted", "punchId": "p1"}]
 
     worker = RetryWorker(session_factory, ukg)
     worker._process_failed_punches()
@@ -36,7 +36,6 @@ def test_process_failed_punches_success():
     assert worker.stats["total_retried"] == 1
     assert worker.stats["total_succeeded"] == 1
 
-    # Verify punch is now synced
     session = session_factory()
     punch = session.query(TimePunch).first()
     assert punch.ukg_synced == "success"
@@ -46,7 +45,7 @@ def test_process_failed_punches_success():
 def test_process_failed_punches_failure():
     session_factory = _setup_db()
     ukg = MagicMock()
-    ukg.submit_time_punch.side_effect = Exception("UKG down")
+    ukg.submit_punch_batch.side_effect = Exception("UKG down")
 
     worker = RetryWorker(session_factory, ukg)
     worker._process_failed_punches()
@@ -101,4 +100,4 @@ def test_exponential_backoff_skips_recent_retries():
     worker._process_failed_punches()
 
     # Should NOT have retried because backoff hasn't elapsed
-    ukg.submit_time_punch.assert_not_called()
+    ukg.submit_punch_batch.assert_not_called()

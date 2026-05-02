@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 RETRY_INTERVALS = [30, 60, 120, 300, 900, 1800, 3600]
 MAX_RETRIES = 48
 POLL_INTERVAL = 30  # seconds between scans
+BATCH_SIZE = 50     # punches per UKG API call
 
 
 class RetryWorker:
@@ -68,12 +69,12 @@ class RetryWorker:
             self._stop_event.wait(timeout=POLL_INTERVAL)
 
     def _process_failed_punches(self):
-        """Find and retry all eligible failed punches."""
+        """Find and retry all eligible failed/pending punches in batches."""
         from models.database import TimePunch, Employee
 
         session = self.db_session_factory()
         try:
-            failed = (
+            candidates = (
                 session.query(TimePunch)
                 .filter(
                     TimePunch.ukg_synced.in_(["failed", "pending"]),
@@ -85,62 +86,101 @@ class RetryWorker:
             now = datetime.datetime.utcnow()
             self.stats["last_run"] = now.isoformat()
 
-            for punch in failed:
-                # Check if enough time has passed since last retry
-                if punch.last_retry_at:
-                    idx = min(punch.retry_count, len(RETRY_INTERVALS) - 1)
-                    wait_seconds = RETRY_INTERVALS[idx]
-                    next_retry = punch.last_retry_at + datetime.timedelta(
-                        seconds=wait_seconds
-                    )
-                    if now < next_retry:
-                        continue
+            # Apply exponential backoff filter
+            eligible = [p for p in candidates if self._is_due(p, now)]
 
-                employee = (
-                    session.query(Employee)
-                    .filter(Employee.employee_id == punch.employee_id)
-                    .first()
-                )
-                if not employee:
-                    continue
+            if not eligible:
+                return
 
-                try:
-                    self.ukg_client.submit_time_punch(
-                        employee_id=employee.ukg_employee_id,
-                        punch_type=punch.punch_type,
-                        punch_time=punch.punch_time,
-                    )
+            # Load all required employees in one query
+            emp_ids = {p.employee_id for p in eligible}
+            employees = {
+                e.employee_id: e
+                for e in session.query(Employee)
+                .filter(Employee.employee_id.in_(emp_ids))
+                .all()
+            }
+
+            # Submit in batches of BATCH_SIZE
+            for i in range(0, len(eligible), BATCH_SIZE):
+                self._submit_batch(session, eligible[i:i + BATCH_SIZE], employees, now)
+        finally:
+            session.close()
+
+    def _is_due(self, punch, now):
+        """Return True if enough time has elapsed since the last retry attempt."""
+        if not punch.last_retry_at:
+            return True
+        idx = min(punch.retry_count, len(RETRY_INTERVALS) - 1)
+        next_retry = punch.last_retry_at + datetime.timedelta(seconds=RETRY_INTERVALS[idx])
+        return now >= next_retry
+
+    def _submit_batch(self, session, batch, employees, now):
+        """Submit a slice of punches as a single UKG API call and persist results."""
+        # Pair each punch with its UKG employee record; skip orphans
+        records = [
+            (punch, employees[punch.employee_id])
+            for punch in batch
+            if punch.employee_id in employees
+        ]
+
+        if not records:
+            return
+
+        punch_payloads = [
+            {
+                "employee_id": emp.ukg_employee_id,
+                "punch_type": punch.punch_type,
+                "punch_time": punch.punch_time,
+            }
+            for punch, emp in records
+        ]
+
+        try:
+            results = self.ukg_client.submit_punch_batch(punch_payloads)
+
+            for (punch, _), result in zip(records, results):
+                self.stats["total_retried"] += 1
+                if result.get("status") == "accepted":
                     punch.ukg_synced = "success"
                     punch.ukg_response = None
                     punch.last_retry_at = now
-                    session.commit()
-                    self.stats["total_retried"] += 1
                     self.stats["total_succeeded"] += 1
-                    logger.info(
-                        "Retry succeeded for punch %d (employee %s)",
-                        punch.id, punch.employee_id,
-                    )
-                except Exception as e:
+                    logger.info("Batch retry succeeded for punch %d (employee %s)",
+                                punch.id, punch.employee_id)
+                else:
+                    error_msg = result.get("error", "rejected by UKG")
                     punch.retry_count += 1
                     punch.last_retry_at = now
-                    punch.ukg_response = str(e)[:500]
-                    if punch.retry_count >= MAX_RETRIES:
-                        self.stats["total_exhausted"] += 1
-                        if punch.id not in self.stats["exhausted_punch_ids"]:
-                            self.stats["exhausted_punch_ids"].append(punch.id)
-                        logger.error(
-                            "Punch %d exhausted all %d retries for employee %s",
-                            punch.id, MAX_RETRIES, punch.employee_id,
-                        )
-                        self._fire_alert(punch)
-                    session.commit()
-                    self.stats["total_retried"] += 1
-                    logger.warning(
-                        "Retry %d/%d failed for punch %d: %s",
-                        punch.retry_count, MAX_RETRIES, punch.id, e,
-                    )
-        finally:
-            session.close()
+                    punch.ukg_response = str(error_msg)[:500]
+                    self._check_exhaustion(punch)
+                    logger.warning("Batch retry rejected for punch %d: %s",
+                                   punch.id, error_msg)
+
+            session.commit()
+
+        except Exception as e:
+            # Entire batch call failed — increment every punch in this slice
+            for punch, _ in records:
+                punch.retry_count += 1
+                punch.last_retry_at = now
+                punch.ukg_response = str(e)[:500]
+                self.stats["total_retried"] += 1
+                self._check_exhaustion(punch)
+            session.commit()
+            logger.warning("Batch of %d punches failed: %s", len(records), e)
+
+    def _check_exhaustion(self, punch):
+        """Handle a punch that may have reached its retry limit."""
+        if punch.retry_count >= MAX_RETRIES:
+            self.stats["total_exhausted"] += 1
+            if punch.id not in self.stats["exhausted_punch_ids"]:
+                self.stats["exhausted_punch_ids"].append(punch.id)
+            logger.error(
+                "Punch %d exhausted all %d retries for employee %s",
+                punch.id, MAX_RETRIES, punch.employee_id,
+            )
+            self._fire_alert(punch)
 
     def _fire_alert(self, punch):
         """Invoke the alert callback when a punch exhausts all retries."""

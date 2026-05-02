@@ -76,13 +76,13 @@ class UKGApiClient:
             "US-Customer-Api-Key": self.user_api_key,
         }
 
-    def submit_time_punch(self, employee_id, punch_type, punch_time=None):
-        """Submit a clock-in or clock-out punch to UKG.
+    def submit_time_punch(self, employee_id, punch_type, punch_time):
+        """Submit a single clock-in or clock-out punch to UKG.
 
         Args:
             employee_id: The UKG employee identifier.
             punch_type: Either 'clock_in' or 'clock_out'.
-            punch_time: Optional datetime; defaults to now (UTC).
+            punch_time: datetime of the punch (required — never defaults to now).
 
         Returns:
             dict with the API response data.
@@ -90,35 +90,63 @@ class UKGApiClient:
         Raises:
             requests.HTTPError: If the API call fails.
         """
-        if punch_time is None:
-            punch_time = datetime.datetime.utcnow()
+        results = self.submit_punch_batch([{
+            "employee_id": employee_id,
+            "punch_type": punch_type,
+            "punch_time": punch_time,
+        }])
+        result = results[0]
+        if result.get("status") != "accepted":
+            raise RuntimeError(f"UKG rejected punch: {result.get('error', 'unknown error')}")
+        return result
 
-        # UKG Timekeeping API endpoint for punches
-        url = f"{self.base_url}/personnel/v1/employee-punches"
+    def submit_punch_batch(self, punches):
+        """Submit multiple punches in a single API call to avoid concurrent requests.
 
-        # Map our punch types to UKG's expected values
-        ukg_punch_type = "IN" if punch_type == "clock_in" else "OUT"
+        Args:
+            punches: list of dicts, each with keys:
+                       employee_id  - UKG employee identifier
+                       punch_type   - 'clock_in' or 'clock_out'
+                       punch_time   - datetime of the punch
+
+        Returns:
+            list of result dicts parallel to the input list, each containing:
+              status - 'accepted' or 'rejected'
+              punchId - on success
+              error   - on rejection
+
+        Raises:
+            requests.HTTPError: If the batch API call itself fails.
+        """
+        if not punches:
+            return []
+
+        url = f"{self.base_url}/personnel/v1/employee-punches/batch"
 
         payload = {
-            "employeeIdentifier": employee_id,
-            "punchType": ukg_punch_type,
-            "punchDateTime": punch_time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "punchSource": "PHONE_SYSTEM",
+            "punches": [
+                {
+                    "employeeIdentifier": p["employee_id"],
+                    "punchType": "IN" if p["punch_type"] == "clock_in" else "OUT",
+                    "punchDateTime": p["punch_time"].strftime("%Y-%m-%dT%H:%M:%S"),
+                    "punchSource": "PHONE_SYSTEM",
+                }
+                for p in punches
+            ]
         }
 
-        logger.info(
-            "Submitting %s punch for employee %s at %s",
-            ukg_punch_type, employee_id, punch_time.isoformat()
-        )
+        logger.info("Submitting batch of %d punches to UKG", len(punches))
 
         response = requests.post(
-            url, json=payload, headers=self._get_headers(), timeout=30
+            url, json=payload, headers=self._get_headers(), timeout=60
         )
         response.raise_for_status()
 
-        result = response.json()
-        logger.info("UKG punch submitted successfully: %s", result)
-        return result
+        data = response.json()
+        results = data["results"]
+        accepted = sum(1 for r in results if r.get("status") == "accepted")
+        logger.info("UKG batch complete: %d/%d accepted", accepted, len(punches))
+        return results
 
     def get_employee_punches(self, employee_id, date=None):
         """Retrieve an employee's punches for a given date.

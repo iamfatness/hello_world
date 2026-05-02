@@ -641,27 +641,43 @@ def retry_failed():
 
         succeeded = 0
         errors = 0
-        for punch in failed:
-            employee = session.query(Employee).filter_by(employee_id=punch.employee_id).first()
-            if not employee:
-                continue
-            try:
-                ukg.submit_time_punch(
-                    employee_id=employee.ukg_employee_id,
-                    punch_type=punch.punch_type,
-                    punch_time=punch.punch_time,
-                )
-                punch.ukg_synced = "success"
-                punch.ukg_response = None
-                punch.last_retry_at = datetime.datetime.utcnow()
+
+        if failed:
+            emp_ids = {p.employee_id for p in failed}
+            employees = {
+                e.employee_id: e
+                for e in session.query(Employee)
+                .filter(Employee.employee_id.in_(emp_ids))
+                .all()
+            }
+            submittable = [(p, employees[p.employee_id]) for p in failed if p.employee_id in employees]
+            now = datetime.datetime.utcnow()
+            if submittable:
+                batch_payload = [
+                    {"employee_id": emp.ukg_employee_id,
+                     "punch_type": punch.punch_type,
+                     "punch_time": punch.punch_time}
+                    for punch, emp in submittable
+                ]
+                try:
+                    batch_results = ukg.submit_punch_batch(batch_payload)
+                    for (punch, _), result in zip(submittable, batch_results):
+                        punch.last_retry_at = now
+                        if result.get("status") == "accepted":
+                            punch.ukg_synced = "success"
+                            punch.ukg_response = None
+                            succeeded += 1
+                        else:
+                            punch.retry_count = (punch.retry_count or 0) + 1
+                            punch.ukg_response = str(result.get("error", "rejected"))[:500]
+                            errors += 1
+                except Exception as e:
+                    for punch, _ in submittable:
+                        punch.retry_count = (punch.retry_count or 0) + 1
+                        punch.ukg_response = str(e)[:500]
+                        punch.last_retry_at = now
+                        errors += 1
                 session.commit()
-                succeeded += 1
-            except Exception as e:
-                punch.retry_count = (punch.retry_count or 0) + 1
-                punch.ukg_response = str(e)[:500]
-                punch.last_retry_at = datetime.datetime.utcnow()
-                session.commit()
-                errors += 1
 
         flash(f"Retry complete: {succeeded} succeeded, {errors} failed out of {len(failed)} total.", "success" if errors == 0 else "warning")
     except Exception as e:

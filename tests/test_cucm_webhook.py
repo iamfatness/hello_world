@@ -236,7 +236,7 @@ class TestTextXMLStructure:
     def test_text_has_title(self, client):
         xml = self._get_text_xml(client)
         assert xml.find("Title") is not None
-        assert xml.find("Title").text
+        assert xml.find("Title").text == "Success"
 
     def test_text_has_body(self, client):
         xml = self._get_text_xml(client)
@@ -309,7 +309,7 @@ class TestIVRInputValidation:
         assert resp.status_code == 200
         xml = _parse_xml(resp.data)
         assert xml.tag == "CiscoIPPhoneText"
-        assert xml.find("Title").text in ("Success", "Error")
+        assert xml.find("Title").text == "Success"
 
 
 # ---------------------------------------------------------------------------

@@ -254,7 +254,6 @@ def _record_punch(employee_id, punch_type, caller_id):
     from models.database import TimePunch, Employee
 
     db_session = current_app.config["DB_SESSION_FACTORY"]()
-    ukg_client = current_app.config["UKG_CLIENT"]
 
     try:
         # Look up UKG employee ID
@@ -270,7 +269,7 @@ def _record_punch(employee_id, punch_type, caller_id):
 
         now = datetime.datetime.utcnow()
 
-        # Create local record
+        # Record locally; the batch worker picks this up and syncs to UKG.
         punch = TimePunch(
             employee_id=employee_id,
             punch_type=punch_type,
@@ -280,26 +279,8 @@ def _record_punch(employee_id, punch_type, caller_id):
         )
         db_session.add(punch)
         db_session.commit()
-
-        # Submit to UKG
-        try:
-            ukg_client.submit_time_punch(
-                employee_id=employee.ukg_employee_id,
-                punch_type=punch_type,
-                punch_time=now,
-            )
-            punch.ukg_synced = "success"
-            db_session.commit()
-            logger.info(
-                "Punch recorded and synced to UKG: %s %s", employee_id, punch_type
-            )
-        except Exception as e:
-            punch.ukg_synced = "failed"
-            punch.ukg_response = str(e)[:500]
-            db_session.commit()
-            logger.error("UKG sync failed for %s: %s", employee_id, e)
-            # Still show success to user - punch is recorded locally
-            # and can be retried via the admin API
+        logger.info("Punch queued for batch UKG sync: %s %s at %s",
+                    employee_id, punch_type, now.isoformat())
 
         action = "Clock In" if punch_type == "clock_in" else "Clock Out"
         time_str = _format_local_time(now)

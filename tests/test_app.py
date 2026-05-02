@@ -104,10 +104,10 @@ def test_authenticate_unknown_id(client):
 def test_authenticate_valid_employee(client):
     resp = client.get("/ivr/authenticate?type=clock_in&employee_id=EMP001")
     assert resp.status_code == 200
-    # Should show success (UKG sync will fail but punch is recorded locally)
+    # Punch is recorded locally and queued; UKG sync is deferred to batch worker
     xml = etree.fromstring(resp.data)
     assert xml.tag == "CiscoIPPhoneText"
-    assert xml.find("Title").text in ("Success", "Error")
+    assert xml.find("Title").text == "Success"
 
 
 def test_webhook_incoming_call_known(client):

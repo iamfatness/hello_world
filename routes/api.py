@@ -170,7 +170,7 @@ def list_punches():
 
 @api_bp.route("/punches/retry", methods=["POST"])
 def retry_failed_syncs():
-    """Retry all failed UKG syncs for today's punches."""
+    """Retry all failed UKG syncs for today's punches as a single batch call."""
     from models.database import TimePunch, Employee
 
     session = current_app.config["DB_SESSION_FACTORY"]()
@@ -189,31 +189,47 @@ def retry_failed_syncs():
             .all()
         )
 
-        results = []
-        for punch in failed:
-            employee = (
-                session.query(Employee)
-                .filter(Employee.employee_id == punch.employee_id)
-                .first()
-            )
-            if not employee:
-                results.append({"id": punch.id, "status": "skipped", "reason": "employee not found"})
-                continue
+        if not failed:
+            return jsonify({"retried": 0, "results": []})
 
+        # Load all employees in one query
+        emp_ids = {p.employee_id for p in failed}
+        employees = {
+            e.employee_id: e
+            for e in session.query(Employee)
+            .filter(Employee.employee_id.in_(emp_ids))
+            .all()
+        }
+
+        submittable = [(p, employees[p.employee_id]) for p in failed if p.employee_id in employees]
+        skipped = [{"id": p.id, "status": "skipped", "reason": "employee not found"}
+                   for p in failed if p.employee_id not in employees]
+
+        results = list(skipped)
+
+        if submittable:
+            batch_payload = [
+                {"employee_id": emp.ukg_employee_id,
+                 "punch_type": punch.punch_type,
+                 "punch_time": punch.punch_time}
+                for punch, emp in submittable
+            ]
             try:
-                ukg_client.submit_time_punch(
-                    employee_id=employee.ukg_employee_id,
-                    punch_type=punch.punch_type,
-                    punch_time=punch.punch_time,
-                )
-                punch.ukg_synced = "success"
-                punch.ukg_response = None
-                session.commit()
-                results.append({"id": punch.id, "status": "success"})
+                batch_results = ukg_client.submit_punch_batch(batch_payload)
+                for (punch, _), result in zip(submittable, batch_results):
+                    if result.get("status") == "accepted":
+                        punch.ukg_synced = "success"
+                        punch.ukg_response = None
+                        results.append({"id": punch.id, "status": "success"})
+                    else:
+                        error = result.get("error", "rejected")
+                        punch.ukg_response = str(error)[:500]
+                        results.append({"id": punch.id, "status": "failed", "error": str(error)})
             except Exception as e:
-                punch.ukg_response = str(e)[:500]
-                session.commit()
-                results.append({"id": punch.id, "status": "failed", "error": str(e)})
+                for punch, _ in submittable:
+                    punch.ukg_response = str(e)[:500]
+                    results.append({"id": punch.id, "status": "failed", "error": str(e)})
+            session.commit()
 
         return jsonify({"retried": len(failed), "results": results})
     finally:
